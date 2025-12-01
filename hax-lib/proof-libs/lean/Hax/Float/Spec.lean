@@ -71,8 +71,15 @@ def abs (q : Rat) : Rat := ⟨Int.natAbs q.num, q.den, q.den_pos⟩
 def le (q r : Rat) : Prop :=
   q.num * r.den ≤ r.num * q.den
 
+/-- Less than -/
+def lt (q r : Rat) : Prop :=
+  q.num * r.den < r.num * q.den
+
 instance : LE Rat where
   le := Rat.le
+
+instance : LT Rat where
+  lt := Rat.lt
 
 instance : Add Rat where
   add := Rat.add

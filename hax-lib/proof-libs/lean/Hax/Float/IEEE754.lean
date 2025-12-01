@@ -259,3 +259,141 @@ end Binary32
 -- This transforms the axiomatic approach into a fully constructive one!
 
 end Float.IEEE754
+
+/-! ## Examples and Test Cases
+
+The following examples demonstrate expected behavior of the IEEE754 implementation,
+particularly focusing on boundary values and critical properties.
+-/
+
+namespace Float.IEEE754.Examples
+
+open Binary32
+
+-- Binary32 (f32) constants for reference:
+-- precision = 24 (23 explicit + 1 implicit bit)
+-- exponent_min = -126, exponent_max = 127
+-- epsilon (machine epsilon) = 2^-23
+
+/-! ### Zero and Identity -/
+
+example : FloatRepr.zero exponent_min + FloatRepr.zero exponent_min =
+          FloatRepr.zero exponent_min := by sorry
+
+example : FloatRepr.one precision + FloatRepr.zero exponent_min =
+          FloatRepr.one precision := by sorry
+
+example : FloatRepr.one precision * FloatRepr.one precision =
+          FloatRepr.one precision := by sorry
+
+/-! ### Negation -/
+
+example : (FloatRepr.one precision).neg + FloatRepr.one precision =
+          FloatRepr.zero exponent_min := by sorry
+
+example : (FloatRepr.one precision).neg.neg = FloatRepr.one precision := by sorry
+
+-- Negation preserves magnitude
+example (x : FloatRepr) : (x.neg).toRat precision = -(x.toRat precision) := by
+  exact toRat_neg precision x
+
+/-! ### Commutativity (Proven!) -/
+
+-- These are actually proven, not examples with sorry
+example (x y : Binary32) : x + y = y + x := by
+  exact add_comm precision exponent_min exponent_max RoundMode.ToNearestEven x y
+
+example (x y : Binary32) : x * y = y * x := by
+  exact mul_comm precision exponent_min exponent_max RoundMode.ToNearestEven x y
+
+/-! ### Boundary Values - Small Numbers -/
+
+-- Smallest positive normal number: 1.0 × 2^-126
+def smallest_normal : FloatRepr :=
+  { sign := false, mantissa := 2^23, exponent := -126 }
+
+-- Largest subnormal: (1 - 2^-23) × 2^-126 ≈ 0.999999940395... × 2^-126
+def largest_subnormal : FloatRepr :=
+  { sign := false, mantissa := 2^23 - 1, exponent := -126 }
+
+-- Machine epsilon: 2^-23 (smallest x such that 1+x ≠ 1 in float32)
+def epsilon : FloatRepr :=
+  { sign := false, mantissa := 2^23, exponent := -23 }
+
+example : smallest_normal.toRat precision =
+          Float.Spec.Rat.pow2 (-126) := by sorry
+
+example : epsilon.toRat precision =
+          Float.Spec.Rat.pow2 (-23) := by sorry
+
+/-! ### Boundary Values - Large Numbers -/
+
+-- Largest finite: (2 - 2^-23) × 2^127 ≈ 3.4028235 × 10^38
+def max_value : FloatRepr :=
+  { sign := false, mantissa := 2^24 - 1, exponent := 127 - 24 + 1 }
+
+-- Overflow threshold: 2^128 (rounds to infinity in real IEEE754)
+def overflow_threshold : FloatRepr :=
+  { sign := false, mantissa := 2^23, exponent := 128 }
+
+/-! ### Powers of Two (Exactly Representable) -/
+
+-- 2^0 = 1
+example : FloatRepr.one precision =
+          { sign := false, mantissa := 2^23, exponent := 0 } := by rfl
+
+-- 2^1 = 2
+def two : FloatRepr :=
+  { sign := false, mantissa := 2^23, exponent := 1 }
+
+-- 2^-1 = 0.5
+def half : FloatRepr :=
+  { sign := false, mantissa := 2^23, exponent := -1 }
+
+example : two.toRat precision =
+          ((2 : Nat) : Float.Spec.Rat) := by sorry
+
+example : half.toRat precision + half.toRat precision =
+          (FloatRepr.one precision).toRat precision := by sorry
+
+/-! ### Rounding Behavior -/
+
+-- 1/3 is not exactly representable, should round to nearest
+def one_third_approx : FloatRepr :=
+  -- This would be computed by roundToFloat
+  sorry
+
+-- 1/10 is not exactly representable in binary
+def one_tenth_approx : FloatRepr :=
+  sorry
+
+-- Classic example: 0.1 + 0.2 should round to 0.3 in Binary32
+-- (both sides have same rounded value)
+example : let two : FloatRepr := { sign := false, mantissa := 2^23, exponent := 1 }
+          let three_tenths : FloatRepr := sorry
+          one_tenth_approx + two * one_tenth_approx = three_tenths := by
+  sorry
+
+/-! ### Sterbenz Lemma Cases -/
+
+-- When x/2 ≤ y ≤ 2x, x-y is computed exactly (no rounding error)
+example : let x := FloatRepr.one precision
+          let y := half
+          (x.toRat precision - y.toRat precision) =
+          (x.add precision exponent_min exponent_max RoundMode.ToNearestEven y.neg).toRat precision := by
+  sorry
+
+/-! ### Monotonicity Examples -/
+
+-- If x ≤ y, then x + z ≤ y + z (should hold)
+example (x y z : Binary32) (h : x.toRat precision ≤ y.toRat precision) :
+    (x + z).toRat precision ≤ (y + z).toRat precision := by sorry
+
+-- If 0 < z and x ≤ y, then x*z ≤ y*z (should hold)
+example (x y z : Binary32)
+    (hz : Float.Spec.Rat.zero < z.toRat precision)
+    (h : x.toRat precision ≤ y.toRat precision) :
+    (x * z).toRat precision ≤ (y * z).toRat precision := by sorry
+
+end Float.IEEE754.Examples
+
