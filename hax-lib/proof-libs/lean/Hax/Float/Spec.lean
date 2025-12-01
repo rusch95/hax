@@ -177,6 +177,9 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α] [LE α]
   /-- Ordering totality -/
   le_total : ∀ x y : α, x ≤ y ∨ y ≤ x
 
+  /-- Strict ordering characterization -/
+  lt_iff_le_not_le : ∀ x y : α, x < y ↔ (x ≤ y ∧ ¬(y ≤ x))
+
   /-- Division by self -/
   div_self : ∀ x : α, x ≠ (0 : α) → x / x = (1 : α)
 
@@ -264,38 +267,89 @@ theorem add_le_add (a b c d : α) : a ≤ b → c ≤ d → a + c ≤ b + d := b
   have h2 := add_monotonic_right c d b hcd
   exact le_trans (a + c) (b + c) (b + d) h1 h2
 
+-- Helper theorem: convert ≤ and ¬≤ to <
+theorem lt_of_le_of_ne (x y : α) : x ≤ y → ¬(y ≤ x) → x < y := by
+  intro hle hnle
+  rw [lt_iff_le_not_le]
+  exact ⟨hle, hnle⟩
+
+-- Helper: from ≤ and ≠ get <
+theorem lt_of_le_of_not_eq (x y : α) : x ≤ y → x ≠ y → x < y := by
+  intro hle hne
+  apply lt_of_le_of_ne
+  · exact hle
+  · intro hyx
+    have : x = y := le_antisymm x y hle hyx
+    exact absurd this hne
+
+-- mul_le_mul is provable but requires extensive case analysis
+-- The key cases: c=0, d=0, b=0, and the positive cases
+-- Each needs careful handling with le_total and by_cases
 theorem mul_le_mul (a b c d : α) :
   (0 : α) ≤ a → a ≤ b → (0 : α) ≤ c → c ≤ d → a * c ≤ b * d := by
-  sorry -- TODO: Complex proof requiring careful case analysis on signs
+  sorry  -- TODO: Prove via case analysis on signs of b, c, d using mul_monotonic_pos
 
 /-! ## Subtraction Error from Addition Error -/
 
+-- sub_relative_error would require to_rat to be a homomorphism for subtraction
+-- which needs: to_rat (x - y) = to_rat x - to_rat y (or a weaker version with error)
+-- This isn't axiomatized, so we leave it as sorry
 theorem sub_relative_error (x y : α) :
   ∃ δ : Rat, Rat.abs δ ≤ (@FloatSpec.epsilon α _ _ _ _ _ _ _ _ _ _).divPow2 1 ∧
     to_rat (x - y) = (to_rat x - to_rat y) * (Rat.one + δ) := by
-  sorry -- Needs to_rat (-y) = -(to_rat y)
+  sorry -- Requires homomorphism property: relationship between to_rat and subtraction
 
 /-! ## Sign Properties -/
 
+-- Positive * positive = positive
 theorem mul_sign_pos (x y : α) :
   (0 : α) < x → (0 : α) < y → (0 : α) < x * y := by
-  sorry -- Can derive from monotonicity but needs < 0 handling
+  intro hx hy
+  -- We have 0 * y < x * y by mul_monotonic_pos
+  have h : 0 * y < x * y := by
+    rw [lt_iff_le_not_le]
+    constructor
+    · -- 0 * y ≤ x * y
+      have : 0 * y ≤ x * y := mul_monotonic_pos 0 x y hy (by rw [lt_iff_le_not_le] at hx; exact hx.1)
+      exact this
+    · -- ¬(x * y ≤ 0 * y)
+      intro h_contra
+      -- From hx: 0 < x, we have 0 ≤ x and ¬(x ≤ 0)
+      rw [lt_iff_le_not_le] at hx
+      -- If x * y ≤ 0 * y and 0 ≤ x, then by mul_monotonic_pos (contrapositive), we'd need x ≤ 0
+      -- But we have ¬(x ≤ 0), contradiction
+      have : x ≤ 0 := by
+        -- From x * y ≤ 0 * y and 0 < y, deduce x ≤ 0
+        -- This requires monotonicity in reverse, which is not directly available
+        sorry
+      exact hx.2 this
+  rw [mul_zero_left] at h
+  exact h
 
+-- These require more complex reasoning or are derivable with effort
 theorem mul_sign_neg (x y : α) :
   x < (0 : α) → y < (0 : α) → (0 : α) < x * y := by
-  sorry
+  sorry -- Requires reasoning about negative numbers via mul_antimonotonic_neg
 
 theorem mul_sign_mixed (x y : α) :
   (0 : α) < x → y < (0 : α) → x * y < (0 : α) := by
-  sorry
+  sorry -- Requires reasoning via mul_antimonotonic_neg
 
 /-! ## Cancellation Properties -/
 
-theorem sub_self (x : α) : x - x = 0 := by
-  sorry -- Follows from Sterbenz when x = y
+-- NOTE: sub_self and add_sub_cancel are NOT generally true for floating point!
+-- They are only approximately true, with rounding errors.
+-- For now, marking them as sorry since they need careful statement of error bounds.
 
-theorem add_sub_cancel (x y : α) : (x + y) - y = x := by
-  sorry -- Approximate; exact when no overflow
+-- x - x should be 0 by Sterbenz (since x/2 ≤ x ≤ 2x)
+-- However, Sterbenz gives us existence, not direct equality
+theorem sub_self (x : α) : x - x = 0 := by
+  sorry -- Sterbenz gives exactness for x/2 ≤ x ≤ 2x, but connecting to = 0 needs more work
+
+-- (x + y) - y = x is FALSE in general for floating point!
+-- Example: (1e20 + 1.0) - 1e20 might equal 0, not 1.0, due to rounding
+-- Removing this theorem as it's not true for IEEE 754 floats
+-- theorem add_sub_cancel (x y : α) : (x + y) - y = x := by ...
 
 end FloatSpec
 
@@ -397,14 +451,14 @@ noncomputable abbrev f64_div_relative_error := FloatSpec.div_relative_error (α 
 This module provides a complete formal foundation for IEEE 754 floating-point
 arithmetic based on the NASA paper, extended with error bounds from Flean.
 
-**Axiomatic base (24 core axioms in FloatSpec + 2 instance axioms = 26 total):**
+**Axiomatic base (25 core axioms in FloatSpec + 2 instance axioms = 27 total):**
 1. **Conversion**: to_rat_zero, to_rat_inj (2)
 2. **Commutativity**: Addition and multiplication (2)
 3. **Identity Elements**: Left-hand identities for 0, 1 (3)
 4. **Monotonicity**: Operations preserve ordering (6)
 5. **Sterbenz Lemma**: Exact subtraction for nearby values (1)
 6. **Negation**: Double negation (1)
-7. **Ordering**: Transitivity, antisymmetry, totality (3)
+7. **Ordering**: Transitivity, antisymmetry, totality, lt_iff_le_not_le (4)
 8. **Inverse Relations**: Division properties (3)
 9. **Error Bounds**: Relative error ≤ ε/2 for add, mul, div (3)
 
@@ -422,8 +476,8 @@ arithmetic based on the NASA paper, extended with error bounds from Flean.
 
 **Reduction from previous version:**
 - Before: 72 axioms (36 for f32 + 36 for f64)
-- After: 26 axioms (24 typeclass axioms + 2 instances)
-- Reduction: 64% fewer axioms via typeclass unification
+- After: 27 axioms (25 typeclass axioms + 2 instances)
+- Reduction: 62% fewer axioms via typeclass unification
 
 Note: Associativity is intentionally NOT included, as floating-point arithmetic
 is not associative due to rounding effects.
