@@ -356,6 +356,127 @@ example : two.toRat precision =
 example : half.toRat precision + half.toRat precision =
           (FloatRepr.one precision).toRat precision := by sorry
 
+/-! ### Catastrophic Cancellation -/
+
+-- Binary32 can represent ~7-8 decimal digits accurately
+-- When adding numbers of vastly different magnitudes, precision is lost
+
+-- The classic example: (1 + 1e100) + -1e100 = 0, but 1 + (1e100 + -1e100) = 1
+-- For Binary32, we use 1e10 instead of 1e100 (since max Binary32 ≈ 3.4e38)
+
+-- Large number for Binary32: approximately 1e10 = 10,000,000,000
+def one_e10 : FloatRepr :=
+  -- 1e10 ≈ 2^33.2, represented as mantissa * 2^(33-23) ≈ mantissa * 2^10
+  -- More precisely: 10^10 = (1.25 * 2^23) * 2^10 approximately
+  { sign := false, mantissa := 11920928, exponent := 10 }  -- Approximation
+
+-- Classic catastrophic cancellation: associativity fails!
+-- (1 + 1e10) + -1e10 ≠ 1 + (1e10 + -1e10)
+example : let one := FloatRepr.one precision
+          let large := one_e10
+          let neg_large := large.neg
+          -- Left-associative: (1 + 1e10) + (-1e10)
+          -- Step 1: 1 + 1e10 rounds to 1e10 (the 1 is too small, gets rounded away)
+          -- Step 2: 1e10 + (-1e10) = 0
+          -- Result: 0
+          let left := (one + large) + neg_large
+          -- Right-associative: 1 + (1e10 + (-1e10))
+          -- Step 1: 1e10 + (-1e10) = 0 (exact cancellation)
+          -- Step 2: 1 + 0 = 1
+          -- Result: 1
+          let right := one + (large + neg_large)
+          -- Catastrophic cancellation: left ≠ right!
+          -- The order of operations determines whether we get 0 or 1!
+          left ≠ right := by
+  sorry
+
+-- Note: In exact arithmetic, both would equal 1
+-- But floating-point loses the 1 in the first case due to limited precision
+
+-- For Binary64 (f64), the actual (1 + 1e100) + -1e100 example would work:
+-- Binary64 max ≈ 1.8e308, so 1e100 is well within range
+-- The principle is the same: adding 1 to 1e100 loses the 1, so result is 0
+-- But 1 + (1e100 + -1e100) = 1 + 0 = 1
+
+-- Large number for Binary32: 1e20 is well within range but has limited precision
+def large_number : FloatRepr :=
+  -- 1e20 ≈ 2^66.4, so we use mantissa * 2^(66-23) = mantissa * 2^43
+  { sign := false, mantissa := 2^23, exponent := 43 }  -- Approximation of 1e10
+
+-- Classic catastrophic cancellation example
+-- (1 + large) + (-large) ≠ 1 + (large + (-large))
+-- The first loses precision, the second doesn't
+
+example : let one := FloatRepr.one precision
+          let large := large_number
+          let neg_large := large.neg
+          -- Left-associative: (1 + large) + (-large)
+          -- The intermediate (1 + large) rounds to large (1 is lost)
+          -- Then large + (-large) = 0
+          let left := (one + large) + neg_large
+          -- Right-associative: 1 + (large + (-large))
+          -- First large + (-large) = 0 exactly
+          -- Then 1 + 0 = 1
+          let right := one + (large + neg_large)
+          -- These should be DIFFERENT (demonstrating non-associativity)
+          left ≠ right := by
+  sorry
+
+-- More dramatic example: adding small values to large base
+example : let small := FloatRepr.one precision  -- 1.0
+          let large := large_number
+          let neg_large := large.neg
+          -- Sum small values first, then cancel large: (small + small) + (large + neg_large)
+          let sum_small_first := (small + small) + (large + neg_large)  -- = 2.0
+          -- Cancel large values, then add small: (large + neg_large) + (small + small)
+          let cancel_first := (large + neg_large) + (small + small)      -- = 2.0
+          -- Add to large first: ((small + large) + small) + neg_large
+          let add_to_large := ((small + large) + small) + neg_large      -- ≈ 0 (precision lost)
+          -- These should differ if precision is lost
+          sum_small_first ≠ add_to_large := by
+  sorry
+
+-- Sterbenz counterexample: catastrophic cancellation when NOT in Sterbenz range
+-- If we subtract numbers NOT in the range [x/2, 2x], we can lose precision
+example : let x := FloatRepr.one precision
+          let large := large_number
+          -- large is NOT in [x/2, 2x], so subtraction is not exact
+          -- (x + large) - large should equal x, but due to rounding it equals 0
+          let result := (x + large) + large.neg
+          result ≠ x := by
+  sorry
+
+-- Concrete example with specific Binary32 values
+-- In exact arithmetic: (1.0 + 2^24) - 2^24 = 1.0
+-- In Binary32: (1.0 + 2^24) rounds to 2^24 (1.0 lost), then 2^24 - 2^24 = 0
+def two_to_24 : FloatRepr :=
+  { sign := false, mantissa := 2^23, exponent := 1 }  -- 2^24
+
+example : let one := FloatRepr.one precision
+          let big := two_to_24
+          -- When we add 1.0 to 2^24, the 1.0 is smaller than the ULP at that magnitude
+          -- Binary32 has 24 bits precision, so at 2^24, the ULP is 1.0
+          -- But the rounding behavior means 1.0 + 2^24 = 2^24 (1.0 is exactly at the rounding threshold)
+          -- Then 2^24 - 2^24 = 0, not 1.0
+          let result := (one + big) + big.neg
+          -- This should be 0, not 1, demonstrating catastrophic cancellation
+          result = FloatRepr.zero exponent_min := by
+  sorry
+
+-- Demonstration that association matters for numerical stability
+example : let values := [
+            FloatRepr.one precision,
+            large_number,
+            large_number.neg,
+            FloatRepr.one precision
+          ]
+          -- Summing left-to-right: ((1 + large) + (-large)) + 1
+          -- = (large + (-large)) + 1 = 0 + 1 = 1 ??? (but first step loses precision)
+          -- Summing with Kahan: preserve small values
+          -- Different results expected
+          sorry := by
+  sorry
+
 /-! ### Rounding Behavior -/
 
 -- 1/3 is not exactly representable, should round to nearest
