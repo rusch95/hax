@@ -126,6 +126,9 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α] [LE α]
   /-- Conversion is injective for finite values -/
   to_rat_inj : ∀ x y : α, to_rat x = to_rat y → x = y
 
+  /-- Conversion preserves negation (exact since negation is exact) -/
+  to_rat_neg : ∀ x : α, to_rat (-x) = -(to_rat x)
+
   /-- Addition is commutative -/
   add_comm : ∀ x y : α, x + y = y + x
 
@@ -138,20 +141,14 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α] [LE α]
   /-- Multiplication identity (left) -/
   mul_one_left : ∀ x : α, 1 * x = x
 
-  /-- Multiplication by zero (left) -/
-  mul_zero_left : ∀ x : α, 0 * x = 0
+  /-- Zero product property -/
+  mul_eq_zero : ∀ x y : α, x * y = (0 : α) ↔ x = (0 : α) ∨ y = (0 : α)
 
   /-- Addition monotonicity (left) -/
   add_monotonic_left : ∀ x y z : α, x ≤ y → x + z ≤ y + z
 
-  /-- Subtraction anti-monotonicity -/
-  sub_monotonic : ∀ x y z : α, x ≤ y → z - y ≤ z - x
-
   /-- Multiplication monotonicity (positive) -/
   mul_monotonic_pos : ∀ x y z : α, (0 : α) < z → x ≤ y → x * z ≤ y * z
-
-  /-- Multiplication anti-monotonicity (negative) -/
-  mul_antimonotonic_neg : ∀ x y z : α, z < (0 : α) → x ≤ y → y * z ≤ x * z
 
   /-- Division monotonicity (numerator) -/
   div_monotonic_num : ∀ x y z : α, (0 : α) < z → x ≤ y → x / z ≤ y / z
@@ -167,6 +164,18 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α] [LE α]
 
   /-- Negation is exact (double negation) -/
   neg_exact : ∀ x : α, -(-x) = x
+
+  /-- Negation distributes over multiplication (left) -/
+  neg_mul : ∀ x y : α, (-x) * y = -(x * y)
+
+  /-- Negation flips ordering -/
+  neg_le_neg : ∀ x y : α, x ≤ y ↔ -y ≤ -x
+
+  /-- Subtraction as addition of negation -/
+  sub_eq_add_neg : ∀ x y : α, x - y = x + (-y)
+
+  /-- Additive inverse -/
+  add_neg_self : ∀ x : α, x + (-x) = (0 : α)
 
   /-- Ordering transitivity -/
   le_trans : ∀ x y z : α, x ≤ y → y ≤ z → x ≤ z
@@ -249,8 +258,19 @@ theorem add_zero_right (x : α) : x + 0 = x := by
 theorem mul_one_right (x : α) : x * 1 = x := by
   rw [mul_comm]; exact mul_one_left x
 
+-- Multiplication by zero (derived from mul_eq_zero)
+theorem mul_zero_left (x : α) : 0 * x = 0 := by
+  -- Use mul_eq_zero backward: x * y = 0 ← x = 0 ∨ y = 0
+  -- Setting x = 0: 0 * y = 0 ← 0 = 0 ∨ y = 0, which holds by Or.inl rfl
+  exact (mul_eq_zero 0 x).mpr (Or.inl rfl)
+
 theorem mul_zero_right (x : α) : x * 0 = 0 := by
   rw [mul_comm]; exact mul_zero_left x
+
+theorem neg_zero : -((0 : α)) = (0 : α) := by
+  have h : (0 : α) + (-(0 : α)) = (0 : α) := add_neg_self (0 : α)
+  rw [add_zero_left] at h
+  exact h
 
 /-! ## Right-hand Monotonicity from Commutativity -/
 
@@ -267,6 +287,50 @@ theorem add_le_add (a b c d : α) : a ≤ b → c ≤ d → a + c ≤ b + d := b
   have h2 := add_monotonic_right c d b hcd
   exact le_trans (a + c) (b + c) (b + d) h1 h2
 
+-- Subtraction anti-monotonicity (derived from add_monotonic_left and neg_le_neg)
+theorem sub_monotonic (x y z : α) : x ≤ y → z - y ≤ z - x := by
+  intro hxy
+  -- z - y = z + (-y) and z - x = z + (-x)
+  rw [sub_eq_add_neg, sub_eq_add_neg]
+  -- From x ≤ y, get -y ≤ -x
+  have h_neg : -y ≤ -x := (neg_le_neg x y).mp hxy
+  -- Apply add_monotonic_right
+  exact add_monotonic_right (-y) (-x) z h_neg
+
+-- Multiplication anti-monotonicity for negative multipliers (derived from mul_monotonic_pos)
+theorem mul_antimonotonic_neg (x y z : α) : z < (0 : α) → x ≤ y → y * z ≤ x * z := by
+  intro hz hxy
+  -- From z < 0, get 0 < -z
+  have h_neg_z : 0 < -z := by
+    rw [lt_iff_le_not_le] at hz ⊢
+    constructor
+    · rw [← neg_zero]
+      exact (neg_le_neg z 0).mp hz.1
+    · intro h_contra
+      rw [← neg_zero] at h_contra
+      have : 0 ≤ z := (neg_le_neg 0 z).mpr h_contra
+      exact hz.2 this
+  -- From x ≤ y and 0 < -z, get x * (-z) ≤ y * (-z)
+  have h_prod : x * (-z) ≤ y * (-z) := mul_monotonic_pos x y (-z) h_neg_z hxy
+  -- Convert using neg_mul: x * (-z) = -(x * z) and y * (-z) = -(y * z)
+  have hx : x * (-z) = -(x * z) := by
+    calc x * (-z) = (-z) * x := mul_comm x (-z)
+      _ = -(z * x) := neg_mul z x
+      _ = -(x * z) := by rw [mul_comm z x]
+  have hy : y * (-z) = -(y * z) := by
+    calc y * (-z) = (-z) * y := mul_comm y (-z)
+      _ = -(z * y) := neg_mul z y
+      _ = -(y * z) := by rw [mul_comm z y]
+  -- So -(x * z) ≤ -(y * z), which gives y * z ≤ x * z
+  rw [hx, hy] at h_prod
+  exact (neg_le_neg (y * z) (x * z)).mpr h_prod
+
+-- Helper: reflexivity of ≤
+theorem le_refl (x : α) : x ≤ x := by
+  cases le_total x x with
+  | inl h => exact h
+  | inr h => exact h
+
 -- Helper theorem: convert ≤ and ¬≤ to <
 theorem lt_of_le_of_ne (x y : α) : x ≤ y → ¬(y ≤ x) → x < y := by
   intro hle hnle
@@ -282,22 +346,114 @@ theorem lt_of_le_of_not_eq (x y : α) : x ≤ y → x ≠ y → x < y := by
     have : x = y := le_antisymm x y hle hyx
     exact absurd this hne
 
--- mul_le_mul is provable but requires extensive case analysis
--- The key cases: c=0, d=0, b=0, and the positive cases
--- Each needs careful handling with le_total and by_cases
+-- Contrapositive of mul_monotonic_pos: cancellation law
+theorem mul_lt_mul_of_pos_right (x y z : α) : (0 : α) < z → x * z < y * z → x < y := by
+  intro hz hlt
+  -- Use le_total to split on x ≤ y vs y ≤ x
+  cases le_total x y with
+  | inl hxy =>
+    -- Case: x ≤ y. Need to show ¬(y ≤ x) to get x < y
+    rw [lt_iff_le_not_le]
+    constructor
+    · exact hxy
+    · intro hyx
+      -- If y ≤ x, then x = y by antisymmetry
+      have heq : x = y := le_antisymm x y hxy hyx
+      -- From x * z < y * z we get ¬(y * z ≤ x * z)
+      rw [lt_iff_le_not_le] at hlt
+      -- But if x = y, then y * z ≤ x * z
+      have h_contra : y * z ≤ x * z := by
+        calc y * z = x * z := by rw [← heq]
+          _ ≤ x * z := le_refl (x * z)
+      exact hlt.2 h_contra
+  | inr hyx =>
+    -- Case: y ≤ x. This leads to contradiction
+    -- By mul_monotonic_pos: y * z ≤ x * z
+    have : y * z ≤ x * z := mul_monotonic_pos y x z hz hyx
+    -- But x * z < y * z means ¬(y * z ≤ x * z)
+    rw [lt_iff_le_not_le] at hlt
+    exact absurd this hlt.2
+
+-- mul_le_mul: multiply inequalities with non-negative bounds
+-- Strategy: a * c ≤ b * c ≤ b * d via two applications of mul_monotonic_pos
 theorem mul_le_mul (a b c d : α) :
   (0 : α) ≤ a → a ≤ b → (0 : α) ≤ c → c ≤ d → a * c ≤ b * d := by
-  sorry  -- TODO: Prove via case analysis on signs of b, c, d using mul_monotonic_pos
+  intro ha0 hab hc0 hcd
+  -- Case split on whether c = 0
+  by_cases hc_eq : c = (0 : α)
+  · -- Case: c = 0, so a * c = 0
+    rw [hc_eq, mul_zero_right]
+    -- Need to show 0 ≤ b * d
+    -- We have 0 = c ≤ d, so 0 ≤ d
+    have hd0 : 0 ≤ d := by
+      calc (0 : α) = c := by rw [← hc_eq]
+        _ ≤ d := hcd
+    -- Case split on whether d = 0
+    by_cases hd_eq : d = (0 : α)
+    · -- d = 0, so b * d = 0
+      rw [hd_eq, mul_zero_right]
+      exact le_refl 0
+    · -- d > 0
+      have hd_pos : 0 < d := lt_of_le_of_not_eq 0 d hd0 (Ne.symm hd_eq)
+      -- We have 0 ≤ a ≤ b, so 0 ≤ b
+      have hb0 : 0 ≤ b := le_trans 0 a b ha0 hab
+      -- Case split on whether b = 0
+      by_cases hb_eq : b = (0 : α)
+      · rw [hb_eq, mul_zero_left]
+        exact le_refl 0
+      · -- b > 0, so 0 < b and 0 < d
+        have hb_pos : 0 < b := lt_of_le_of_not_eq 0 b hb0 (Ne.symm hb_eq)
+        -- By mul_monotonic_pos: 0 ≤ b and 0 < d implies 0 * d ≤ b * d
+        have : 0 * d ≤ b * d := mul_monotonic_pos 0 b d hd_pos hb0
+        rw [mul_zero_left] at this
+        exact this
+  · -- Case: c > 0
+    have hc_pos : 0 < c := lt_of_le_of_not_eq 0 c hc0 (Ne.symm hc_eq)
+    -- By mul_monotonic_pos: a ≤ b and 0 < c implies a * c ≤ b * c
+    have h1 : a * c ≤ b * c := mul_monotonic_pos a b c hc_pos hab
+    -- Now need b * c ≤ b * d
+    -- We have 0 ≤ a ≤ b, so 0 ≤ b
+    have hb0 : 0 ≤ b := le_trans 0 a b ha0 hab
+    -- Case split on whether b = 0
+    by_cases hb_eq : b = (0 : α)
+    · -- b = 0, so both b * c = 0 and b * d = 0
+      -- Need: a * c ≤ b * d, which becomes a * c ≤ 0 * d = 0
+      have h1_simplified : a * c ≤ 0 := by
+        calc a * c ≤ b * c := h1
+          _ = 0 * c := by rw [hb_eq]
+          _ = 0 := mul_zero_left c
+      calc a * c ≤ 0 := h1_simplified
+        _ = 0 * d := by rw [mul_zero_left]
+        _ = b * d := by rw [← hb_eq]
+    · -- b > 0
+      have hb_pos : 0 < b := lt_of_le_of_not_eq 0 b hb0 (Ne.symm hb_eq)
+      -- By mul_monotonic_pos: c ≤ d and 0 < b implies c * b ≤ d * b
+      -- Then use commutativity to get b * c ≤ b * d
+      have h2_aux : c * b ≤ d * b := mul_monotonic_pos c d b hb_pos hcd
+      have h2 : b * c ≤ b * d := by
+        calc b * c = c * b := mul_comm b c
+          _ ≤ d * b := h2_aux
+          _ = b * d := mul_comm d b
+      -- Combine: a * c ≤ b * c ≤ b * d
+      exact le_trans (a * c) (b * c) (b * d) h1 h2
 
 /-! ## Subtraction Error from Addition Error -/
 
--- sub_relative_error would require to_rat to be a homomorphism for subtraction
--- which needs: to_rat (x - y) = to_rat x - to_rat y (or a weaker version with error)
--- This isn't axiomatized, so we leave it as sorry
+-- Subtraction has same relative error bound as addition
 theorem sub_relative_error (x y : α) :
   ∃ δ : Rat, Rat.abs δ ≤ (@FloatSpec.epsilon α _ _ _ _ _ _ _ _ _ _).divPow2 1 ∧
     to_rat (x - y) = (to_rat x - to_rat y) * (Rat.one + δ) := by
-  sorry -- Requires homomorphism property: relationship between to_rat and subtraction
+  -- Use sub_eq_add_neg: x - y = x + (-y)
+  have h_sub : x - y = x + (-y) := sub_eq_add_neg x y
+  -- Apply add_relative_error to x + (-y)
+  obtain ⟨δ, h_bound, h_add⟩ := add_relative_error x (-y)
+  exists δ
+  constructor
+  · exact h_bound
+  · calc to_rat (x - y) = to_rat (x + (-y)) := by rw [h_sub]
+      _ = (to_rat x + to_rat (-y)) * (Rat.one + δ) := h_add
+      _ = (to_rat x + (-(to_rat y))) * (Rat.one + δ) := by rw [to_rat_neg y]
+      _ = (to_rat x - to_rat y) * (Rat.one + δ) := rfl
 
 /-! ## Sign Properties -/
 
@@ -305,46 +461,119 @@ theorem sub_relative_error (x y : α) :
 theorem mul_sign_pos (x y : α) :
   (0 : α) < x → (0 : α) < y → (0 : α) < x * y := by
   intro hx hy
-  -- We have 0 * y < x * y by mul_monotonic_pos
+  -- Show 0 * y < x * y, and since 0 * y = 0, we're done
   have h : 0 * y < x * y := by
     rw [lt_iff_le_not_le]
     constructor
-    · -- 0 * y ≤ x * y
-      have : 0 * y ≤ x * y := mul_monotonic_pos 0 x y hy (by rw [lt_iff_le_not_le] at hx; exact hx.1)
-      exact this
+    · -- 0 * y ≤ x * y by mul_monotonic_pos
+      exact mul_monotonic_pos 0 x y hy (by rw [lt_iff_le_not_le] at hx; exact hx.1)
     · -- ¬(x * y ≤ 0 * y)
       intro h_contra
-      -- From hx: 0 < x, we have 0 ≤ x and ¬(x ≤ 0)
-      rw [lt_iff_le_not_le] at hx
-      -- If x * y ≤ 0 * y and 0 ≤ x, then by mul_monotonic_pos (contrapositive), we'd need x ≤ 0
-      -- But we have ¬(x ≤ 0), contradiction
-      have : x ≤ 0 := by
-        -- From x * y ≤ 0 * y and 0 < y, deduce x ≤ 0
-        -- This requires monotonicity in reverse, which is not directly available
-        sorry
-      exact hx.2 this
+      -- We have 0 * y ≤ x * y and x * y ≤ 0 * y, so x * y = 0 * y = 0
+      have h_eq : x * y = 0 * y := le_antisymm (x * y) (0 * y) h_contra (mul_monotonic_pos 0 x y hy (by rw [lt_iff_le_not_le] at hx; exact hx.1))
+      rw [mul_zero_left] at h_eq
+      -- By mul_eq_zero, x * y = 0 implies x = 0 or y = 0
+      rw [mul_eq_zero] at h_eq
+      cases h_eq with
+      | inl hx_zero =>
+        -- x = 0 contradicts 0 < x
+        rw [hx_zero] at hx
+        rw [lt_iff_le_not_le] at hx
+        exact hx.2 (le_refl 0)
+      | inr hy_zero =>
+        -- y = 0 contradicts 0 < y
+        rw [hy_zero] at hy
+        rw [lt_iff_le_not_le] at hy
+        exact hy.2 (le_refl 0)
   rw [mul_zero_left] at h
   exact h
 
--- These require more complex reasoning or are derivable with effort
+-- Negative * negative = positive
 theorem mul_sign_neg (x y : α) :
   x < (0 : α) → y < (0 : α) → (0 : α) < x * y := by
-  sorry -- Requires reasoning about negative numbers via mul_antimonotonic_neg
+  intro hx hy
+  -- From x < 0, get 0 < -x
+  have h_neg_x : 0 < -x := by
+    rw [lt_iff_le_not_le] at hx ⊢
+    constructor
+    · -- Need: 0 ≤ -x, which is -x ≥ -0, which follows from x ≤ 0
+      rw [← neg_zero]
+      exact (neg_le_neg x 0).mp hx.1
+    · -- Need: ¬(-x ≤ 0), which is ¬(-x ≤ -0), which means ¬(0 ≤ x)
+      intro h_contra
+      rw [← neg_zero] at h_contra
+      have : 0 ≤ x := (neg_le_neg 0 x).mpr h_contra
+      exact hx.2 this
+  -- From y < 0, get 0 < -y
+  have h_neg_y : 0 < -y := by
+    rw [lt_iff_le_not_le] at hy ⊢
+    constructor
+    · rw [← neg_zero]
+      exact (neg_le_neg y 0).mp hy.1
+    · intro h_contra
+      rw [← neg_zero] at h_contra
+      have : 0 ≤ y := (neg_le_neg 0 y).mpr h_contra
+      exact hy.2 this
+  -- By mul_sign_pos: 0 < (-x) * (-y)
+  have h_prod : 0 < (-x) * (-y) := mul_sign_pos (-x) (-y) h_neg_x h_neg_y
+  -- Show (-x) * (-y) = x * y
+  have h_eq : (-x) * (-y) = x * y := by
+    have step1 : (-x) * (-y) = -(x * (-y)) := neg_mul x (-y)
+    have step2 : x * (-y) = -(x * y) := by
+      calc x * (-y) = (-y) * x := mul_comm x (-y)
+        _ = -(y * x) := neg_mul y x
+        _ = -(x * y) := by rw [mul_comm y x]
+    calc (-x) * (-y) = -(x * (-y)) := step1
+      _ = -(-(x * y)) := by rw [step2]
+      _ = x * y := neg_exact (x * y)
+  rw [← h_eq]
+  exact h_prod
 
+-- Positive * negative = negative
 theorem mul_sign_mixed (x y : α) :
   (0 : α) < x → y < (0 : α) → x * y < (0 : α) := by
-  sorry -- Requires reasoning via mul_antimonotonic_neg
+  intro hx hy
+  -- From y < 0, get 0 < -y
+  have h_neg_y : 0 < -y := by
+    rw [lt_iff_le_not_le] at hy ⊢
+    constructor
+    · rw [← neg_zero]
+      exact (neg_le_neg y 0).mp hy.1
+    · intro h_contra
+      rw [← neg_zero] at h_contra
+      have : 0 ≤ y := (neg_le_neg 0 y).mpr h_contra
+      exact hy.2 this
+  -- By mul_sign_pos: 0 < x * (-y)
+  have h_prod : 0 < x * (-y) := mul_sign_pos x (-y) hx h_neg_y
+  -- x * (-y) = -(x * y) by neg_mul
+  have h_eq : x * (-y) = -(x * y) := by
+    calc x * (-y) = (-y) * x := mul_comm x (-y)
+      _ = -(y * x) := neg_mul y x
+      _ = -(x * y) := by rw [mul_comm y x]
+  -- So 0 < -(x * y), which means x * y < 0
+  rw [h_eq] at h_prod
+  -- Need to show: 0 < -(x * y) implies x * y < 0
+  rw [lt_iff_le_not_le]
+  rw [lt_iff_le_not_le] at h_prod
+  constructor
+  · -- x * y ≤ 0 from 0 ≤ -(x * y)
+    -- neg_le_neg: x * y ≤ 0 ↔ -0 ≤ -(x * y), which is x * y ≤ 0 ↔ 0 ≤ -(x * y)
+    have h_neg : -0 ≤ -(x * y) := by rw [neg_zero]; exact h_prod.1
+    exact (neg_le_neg (x * y) 0).mpr h_neg
+  · -- ¬(0 ≤ x * y)
+    intro h_contra
+    -- From 0 ≤ x * y, get -(x * y) ≤ -0 = 0
+    -- neg_le_neg: 0 ≤ x * y ↔ -(x * y) ≤ -0
+    have h_neg : -(x * y) ≤ -0 := (neg_le_neg 0 (x * y)).mp h_contra
+    rw [neg_zero] at h_neg
+    exact h_prod.2 h_neg
 
 /-! ## Cancellation Properties -/
 
--- NOTE: sub_self and add_sub_cancel are NOT generally true for floating point!
--- They are only approximately true, with rounding errors.
--- For now, marking them as sorry since they need careful statement of error bounds.
-
--- x - x should be 0 by Sterbenz (since x/2 ≤ x ≤ 2x)
--- However, Sterbenz gives us existence, not direct equality
+-- x - x = 0 is exact (follows from additive inverse)
 theorem sub_self (x : α) : x - x = 0 := by
-  sorry -- Sterbenz gives exactness for x/2 ≤ x ≤ 2x, but connecting to = 0 needs more work
+  rw [sub_eq_add_neg]
+  exact add_neg_self x
 
 -- (x + y) - y = x is FALSE in general for floating point!
 -- Example: (1e20 + 1.0) - 1e20 might equal 0, not 1.0, due to rounding
@@ -451,24 +680,28 @@ noncomputable abbrev f64_div_relative_error := FloatSpec.div_relative_error (α 
 This module provides a complete formal foundation for IEEE 754 floating-point
 arithmetic based on the NASA paper, extended with error bounds from Flean.
 
-**Axiomatic base (25 core axioms in FloatSpec + 2 instance axioms = 27 total):**
-1. **Conversion**: to_rat_zero, to_rat_inj (2)
+**Axiomatic base (27 core axioms in FloatSpec + 2 instance axioms = 29 total):**
+1. **Conversion**: to_rat_zero, to_rat_inj, to_rat_neg (3)
 2. **Commutativity**: Addition and multiplication (2)
-3. **Identity Elements**: Left-hand identities for 0, 1 (3)
-4. **Monotonicity**: Operations preserve ordering (6)
+3. **Identity Elements**: add_zero_left, mul_one_left, mul_eq_zero (3)
+4. **Monotonicity**: add_monotonic_left, mul_monotonic_pos, div_monotonic_num, div_antimonotonic_den (4)
 5. **Sterbenz Lemma**: Exact subtraction for nearby values (1)
-6. **Negation**: Double negation (1)
+6. **Negation/Subtraction**: neg_exact, neg_mul, neg_le_neg, sub_eq_add_neg, add_neg_self (5)
 7. **Ordering**: Transitivity, antisymmetry, totality, lt_iff_le_not_le (4)
-8. **Inverse Relations**: Division properties (3)
+8. **Inverse Relations**: div_self, mul_div_cancel, div_mul_cancel (3)
 9. **Error Bounds**: Relative error ≤ ε/2 for add, mul, div (3)
 
-**Derived theorems (14+ theorems):**
+**Derived theorems (17+ theorems):**
 - Rounding properties (4 theorems) - trivial since already rounded
 - Right-hand identities (3 theorems) from commutativity
 - Right-hand monotonicity (1 theorem) from commutativity
+- **mul_zero_left** from mul_eq_zero (zero product property)
+- **sub_monotonic** from add_monotonic_left + neg_le_neg
+- **mul_antimonotonic_neg** from mul_monotonic_pos + neg_le_neg + neg_mul
 - Compatibility axioms (2 theorems) from monotonicity + transitivity
-- Subtraction error (1 theorem) from addition error
-- Sign properties (3+ theorems) from monotonicity
+- Subtraction error (1 theorem) from addition error + to_rat_neg
+- Sign properties (3+ theorems) from monotonicity + negation
+- Helper theorems: le_refl, lt_of_le_of_ne, lt_of_le_of_not_eq, neg_zero
 
 **Key constants:**
 - f32_epsilon = 2^(-23) ≈ 1.19e-7
@@ -476,8 +709,8 @@ arithmetic based on the NASA paper, extended with error bounds from Flean.
 
 **Reduction from previous version:**
 - Before: 72 axioms (36 for f32 + 36 for f64)
-- After: 27 axioms (25 typeclass axioms + 2 instances)
-- Reduction: 62% fewer axioms via typeclass unification
+- After: 29 axioms (27 typeclass axioms + 2 instances)
+- Reduction: 60% fewer axioms via typeclass unification + derivation
 
 Note: Associativity is intentionally NOT included, as floating-point arithmetic
 is not associative due to rounding effects.
