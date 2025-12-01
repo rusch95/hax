@@ -105,6 +105,61 @@ def pow2 (n : Int) : Rat :=
       apply Nat.pow_pos
       decide⟩
 
+/-- Convert natural number to rational -/
+def ofNat (n : Nat) : Rat := ⟨n, 1, by decide⟩
+
+/-- Convert integer to rational -/
+def ofInt (n : Int) : Rat := ⟨n, 1, by decide⟩
+
+/-- Power operation for rationals with integer exponents -/
+def pow (q : Rat) (n : Int) : Rat :=
+  if n ≥ 0 then
+    -- Positive exponent: q^n = (num^n) / (den^n)
+    ⟨q.num ^ n.toNat, q.den ^ n.toNat, by
+      apply Nat.pow_pos q.den_pos⟩
+  else
+    -- Negative exponent: q^(-n) = (den^n) / (num^n)
+    if h : q.num.natAbs > 0 then
+      ⟨(q.den : Int) ^ (-n).toNat, q.num.natAbs ^ (-n).toNat, by
+        apply Nat.pow_pos h⟩
+    else
+      zero  -- 0^(negative) = 0
+
+-- Typeclass instances for Rat
+
+instance : Zero Rat where
+  zero := Rat.zero
+
+instance : One Rat where
+  one := Rat.one
+
+instance {n : Nat} : OfNat Rat n where
+  ofNat := Rat.ofNat n
+
+instance : Coe Nat Rat where
+  coe := Rat.ofNat
+
+instance : Coe Int Rat where
+  coe := Rat.ofInt
+
+instance : HPow Rat Int Rat where
+  hPow := Rat.pow
+
+/-- Addition is commutative -/
+theorem add_comm (q r : Rat) : q + r = r + q := by
+  show Rat.add q r = Rat.add r q
+  have h1 : q.num * r.den + r.num * q.den = r.num * q.den + q.num * r.den := by
+    rw [Int.add_comm]
+  have h2 : q.den * r.den = r.den * q.den := Nat.mul_comm q.den r.den
+  simp only [Rat.add, h1, h2]
+
+/-- Multiplication is commutative -/
+theorem mul_comm (q r : Rat) : q * r = r * q := by
+  show Rat.mul q r = Rat.mul r q
+  have h1 : q.num * r.num = r.num * q.num := Int.mul_comm q.num r.num
+  have h2 : q.den * r.den = r.den * q.den := Nat.mul_comm q.den r.den
+  simp only [Rat.mul, h1, h2]
+
 end Rat
 
 /-! # Floating-Point Specification Typeclass

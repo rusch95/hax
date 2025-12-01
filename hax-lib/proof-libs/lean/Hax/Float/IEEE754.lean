@@ -76,11 +76,11 @@ structure Binary64Config where
 
 /-- Convert FloatRepr to rational number -/
 def FloatRepr.toRat (cfg_prec : Nat) (f : FloatRepr) : Float.Spec.Rat :=
-  -- Simplified placeholder - proper implementation needs:
-  -- 1. Compute (mantissa / 2^prec) * 2^exp
-  -- 2. Apply sign
-  -- For now, just return zero
-  Float.Spec.Rat.zero
+  -- Compute: ± (mantissa / 2^prec) * 2^exp
+  -- = ± mantissa * 2^(exp - prec)
+  let mantissa_rat : Float.Spec.Rat := f.mantissa
+  let base := mantissa_rat * ((2 : Float.Spec.Rat) ^ (f.exponent - (cfg_prec : Int)))
+  if f.sign then -base else base
 
 /-! ## Rounding Modes -/
 
@@ -134,7 +134,9 @@ theorem add_comm (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
     x.add cfg_prec cfg_emin cfg_emax mode y =
     y.add cfg_prec cfg_emin cfg_emax mode x := by
   -- Follows from commutativity of rational addition
-  sorry
+  show roundToFloat cfg_prec cfg_emin cfg_emax mode (x.toRat cfg_prec + y.toRat cfg_prec) =
+       roundToFloat cfg_prec cfg_emin cfg_emax mode (y.toRat cfg_prec + x.toRat cfg_prec)
+  rw [Float.Spec.Rat.add_comm]
 
 /-- Commutativity of multiplication -/
 theorem mul_comm (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
@@ -142,7 +144,9 @@ theorem mul_comm (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
     x.mul cfg_prec cfg_emin cfg_emax mode y =
     y.mul cfg_prec cfg_emin cfg_emax mode x := by
   -- Follows from commutativity of rational multiplication
-  sorry
+  show roundToFloat cfg_prec cfg_emin cfg_emax mode (x.toRat cfg_prec * y.toRat cfg_prec) =
+       roundToFloat cfg_prec cfg_emin cfg_emax mode (y.toRat cfg_prec * x.toRat cfg_prec)
+  rw [Float.Spec.Rat.mul_comm]
 
 /-- Error bound for addition (Flocq-style) -/
 theorem add_error_bound (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
