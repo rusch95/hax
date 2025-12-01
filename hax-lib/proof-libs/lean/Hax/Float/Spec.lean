@@ -160,6 +160,22 @@ theorem mul_comm (q r : Rat) : q * r = r * q := by
   have h2 : q.den * r.den = r.den * q.den := Nat.mul_comm q.den r.den
   simp only [Rat.mul, h1, h2]
 
+/-- Zero times anything is zero -/
+theorem zero_mul (q : Rat) : Rat.zero * q = Rat.zero := by
+  show Rat.mul Rat.zero q = Rat.zero
+  have : Rat.mul Rat.zero q = ⟨0 * q.num, 1 * q.den, by apply Nat.mul_pos; decide; exact q.den_pos⟩ := rfl
+  rw [this]
+  have h1 : (0 : Int) * q.num = 0 := Int.zero_mul q.num
+  have h2 : 1 * q.den = q.den := Nat.one_mul q.den
+  simp only [h1, h2]
+  -- Now we have ⟨0, q.den, _⟩ = ⟨0, 1, _⟩
+  sorry  -- Need to handle proof irrelevance
+
+/-- Anything times zero is zero -/
+theorem mul_zero (q : Rat) : q * Rat.zero = Rat.zero := by
+  rw [mul_comm]
+  exact zero_mul q
+
 end Rat
 
 /-! # Floating-Point Specification Typeclass

@@ -72,6 +72,20 @@ structure Binary64Config where
   exponent_min : Int := -1022
   exponent_max : Int := 1023
 
+/-! ## Basic Operations -/
+
+/-- Zero representation -/
+def FloatRepr.zero (cfg_emin : Int) : FloatRepr :=
+  { sign := false, mantissa := 0, exponent := cfg_emin }
+
+/-- One representation -/
+def FloatRepr.one (cfg_prec : Nat) : FloatRepr :=
+  { sign := false, mantissa := 2^(cfg_prec-1), exponent := 0 }
+
+/-- Negation (flip sign bit) -/
+def FloatRepr.neg (f : FloatRepr) : FloatRepr :=
+  { sign := !f.sign, mantissa := f.mantissa, exponent := f.exponent }
+
 /-! ## Conversion to Rationals -/
 
 /-- Convert FloatRepr to rational number -/
@@ -81,6 +95,22 @@ def FloatRepr.toRat (cfg_prec : Nat) (f : FloatRepr) : Float.Spec.Rat :=
   let mantissa_rat : Float.Spec.Rat := f.mantissa
   let base := mantissa_rat * ((2 : Float.Spec.Rat) ^ (f.exponent - (cfg_prec : Int)))
   if f.sign then -base else base
+
+/-! ## Conversion Theorems -/
+
+/-- Converting zero gives zero -/
+theorem toRat_zero (cfg_prec : Nat) (cfg_emin : Int) :
+    (FloatRepr.zero cfg_emin).toRat cfg_prec = Float.Spec.Rat.zero := by
+  simp only [FloatRepr.toRat, FloatRepr.zero]
+  -- mantissa = 0, so mantissa_rat = 0, and 0 * _ = 0
+  sorry
+
+/-- Negation of floats corresponds to negation of rationals -/
+theorem toRat_neg (cfg_prec : Nat) (f : FloatRepr) :
+    (f.neg).toRat cfg_prec = -(f.toRat cfg_prec) := by
+  simp only [FloatRepr.toRat, FloatRepr.neg]
+  -- Sign is flipped, so we get -(base) instead of base
+  sorry
 
 /-! ## Rounding Modes -/
 
