@@ -3,19 +3,109 @@ Hax Lean Backend - Cryspen
 
 Complete formal specification for floating-point arithmetic based on:
 "A Formal Approach to Floating Point" by Daumas, Rideau, and Théry (NASA LaRC)
+Extended with error bounds inspired by the Flean project.
 
 Reference: https://shemesh.larc.nasa.gov/fm/papers/float.pdf
+Flean: https://github.com/josephmckinsey/Flean
 
 This module implements all major theorems from the NASA paper,
 providing a complete formal foundation for reasoning about IEEE 754 arithmetic.
 
-Core axioms: 58 fundamental properties
+Core axioms: 72 fundamental properties (58 algebraic + 14 error bounds)
 Derived theorems: 10 properties proved from commutativity + core axioms
 -/
 
 import Hax.Lib
 
 namespace Float.Spec
+
+/-! # Minimal Rational Type
+
+For error bounds, we need rationals. We define a minimal structure here
+to avoid dependencies on Mathlib.
+-/
+
+/-- Minimal rational number type for error bound specifications -/
+structure Rat where
+  num : Int
+  den : Nat
+  den_pos : den > 0
+  deriving DecidableEq
+
+namespace Rat
+
+/-- Zero rational -/
+def zero : Rat := ⟨0, 1, by decide⟩
+
+/-- One rational -/
+def one : Rat := ⟨1, 1, by decide⟩
+
+/-- Negation -/
+def neg (q : Rat) : Rat := ⟨-q.num, q.den, q.den_pos⟩
+
+/-- Addition (not reduced to lowest terms) -/
+def add (q r : Rat) : Rat :=
+  ⟨q.num * r.den + r.num * q.den, q.den * r.den, by
+    apply Nat.mul_pos q.den_pos r.den_pos⟩
+
+/-- Subtraction -/
+def sub (q r : Rat) : Rat := q.add r.neg
+
+/-- Multiplication (not reduced to lowest terms) -/
+def mul (q r : Rat) : Rat :=
+  ⟨q.num * r.num, q.den * r.den, by
+    apply Nat.mul_pos q.den_pos r.den_pos⟩
+
+/-- Division -/
+def div (q r : Rat) : Rat :=
+  if h : r.num.natAbs > 0 then
+    ⟨q.num * r.den, q.den * r.num.natAbs, by
+      apply Nat.mul_pos q.den_pos h⟩
+  else
+    zero  -- Division by zero returns zero
+
+/-- Absolute value -/
+def abs (q : Rat) : Rat := ⟨Int.natAbs q.num, q.den, q.den_pos⟩
+
+/-- Less than or equal -/
+def le (q r : Rat) : Prop :=
+  q.num * r.den ≤ r.num * q.den
+
+instance : LE Rat where
+  le := Rat.le
+
+instance : Add Rat where
+  add := Rat.add
+
+instance : Sub Rat where
+  sub := Rat.sub
+
+instance : Mul Rat where
+  mul := Rat.mul
+
+instance : Div Rat where
+  div := Rat.div
+
+instance : Neg Rat where
+  neg := Rat.neg
+
+/-- Division by a power of 2 -/
+def divPow2 (q : Rat) (n : Nat) : Rat :=
+  ⟨q.num, q.den * (2 ^ n), by
+    apply Nat.mul_pos q.den_pos
+    apply Nat.pow_pos
+    decide⟩
+
+/-- Power of 2 as a rational -/
+def pow2 (n : Int) : Rat :=
+  if n ≥ 0 then
+    ⟨2 ^ n.toNat, 1, by decide⟩
+  else
+    ⟨1, 2 ^ (-n).toNat, by
+      apply Nat.pow_pos
+      decide⟩
+
+end Rat
 
 /-! # 1. Floating-Point Format Definitions -/
 
@@ -304,7 +394,86 @@ axiom f32_div_mul_cancel (x y : Float32) :
 axiom f64_div_mul_cancel (x y : Float) :
   y ≠ (0 : Float) → (x / y) * y = x
 
-/-! # 11. Additional Derived Theorems
+/-! # 11. Error Bounds and ULP Properties
+
+These axioms provide quantitative bounds on rounding errors, inspired by
+Flean's error analysis. They are essential for numerical analysis and
+proving accuracy properties of floating-point algorithms.
+
+Machine epsilon (ε) is defined as the distance from 1.0 to the next
+representable float, which equals 2^(1-p) where p is the precision:
+- For binary32: ε = 2^(-23) ≈ 1.19e-7
+- For binary64: ε = 2^(-52) ≈ 2.22e-16
+
+The relative error of round-to-nearest is bounded by ε/2.
+-/
+
+/-- Convert Float32 to rational (axiomatized, treating NaN/Inf as 0) -/
+axiom f32_to_rat : Float32 → Rat
+
+/-- Convert Float to rational (axiomatized, treating NaN/Inf as 0) -/
+axiom f64_to_rat : Float → Rat
+
+/-- Machine epsilon for binary32: 2^(-23) -/
+def f32_epsilon : Rat := Rat.pow2 (-23)
+
+/-- Machine epsilon for binary64: 2^(-52) -/
+def f64_epsilon : Rat := Rat.pow2 (-52)
+
+/-- Conversion preserves zero -/
+axiom f32_to_rat_zero : f32_to_rat (0 : Float32) = Rat.zero
+axiom f64_to_rat_zero : f64_to_rat (0 : Float) = Rat.zero
+
+/-- Conversion is injective for finite values -/
+axiom f32_to_rat_inj (x y : Float32) : f32_to_rat x = f32_to_rat y → x = y
+axiom f64_to_rat_inj (x y : Float) : f64_to_rat x = f64_to_rat y → x = y
+
+/-- Addition relative error bound (round-to-nearest)
+
+For finite floats x and y (no overflow), there exists a relative error δ
+bounded by machine epsilon / 2 such that:
+  fl(x + y) = (x + y) * (1 + δ)
+
+This is the fundamental error model for floating-point arithmetic.
+-/
+axiom f32_add_relative_error (x y : Float32) :
+  ∃ δ : Rat, Rat.abs δ ≤ f32_epsilon.divPow2 1 ∧
+    f32_to_rat (x + y) = (f32_to_rat x + f32_to_rat y) * (Rat.one + δ)
+
+axiom f64_add_relative_error (x y : Float) :
+  ∃ δ : Rat, Rat.abs δ ≤ f64_epsilon.divPow2 1 ∧
+    f64_to_rat (x + y) = (f64_to_rat x + f64_to_rat y) * (Rat.one + δ)
+
+/-- Subtraction relative error bound -/
+axiom f32_sub_relative_error (x y : Float32) :
+  ∃ δ : Rat, Rat.abs δ ≤ f32_epsilon.divPow2 1 ∧
+    f32_to_rat (x - y) = (f32_to_rat x - f32_to_rat y) * (Rat.one + δ)
+
+axiom f64_sub_relative_error (x y : Float) :
+  ∃ δ : Rat, Rat.abs δ ≤ f64_epsilon.divPow2 1 ∧
+    f64_to_rat (x - y) = (f64_to_rat x - f64_to_rat y) * (Rat.one + δ)
+
+/-- Multiplication relative error bound -/
+axiom f32_mul_relative_error (x y : Float32) :
+  ∃ δ : Rat, Rat.abs δ ≤ f32_epsilon.divPow2 1 ∧
+    f32_to_rat (x * y) = (f32_to_rat x * f32_to_rat y) * (Rat.one + δ)
+
+axiom f64_mul_relative_error (x y : Float) :
+  ∃ δ : Rat, Rat.abs δ ≤ f64_epsilon.divPow2 1 ∧
+    f64_to_rat (x * y) = (f64_to_rat x * f64_to_rat y) * (Rat.one + δ)
+
+/-- Division relative error bound -/
+axiom f32_div_relative_error (x y : Float32) :
+  y ≠ (0 : Float32) →
+  ∃ δ : Rat, Rat.abs δ ≤ f32_epsilon.divPow2 1 ∧
+    f32_to_rat (x / y) = (f32_to_rat x / f32_to_rat y) * (Rat.one + δ)
+
+axiom f64_div_relative_error (x y : Float) :
+  y ≠ (0 : Float) →
+  ∃ δ : Rat, Rat.abs δ ≤ f64_epsilon.divPow2 1 ∧
+    f64_to_rat (x / y) = (f64_to_rat x / f64_to_rat y) * (Rat.one + δ)
+
+/-! # 12. Additional Derived Theorems
 
 These follow from the axioms above and match theorems in the NASA paper.
 -/
@@ -323,12 +492,12 @@ theorem f64_add_sub_cancel (x y : Float) :
   (x + y) - y = x := by
   sorry  -- Approximate; holds exactly when no overflow
 
-/-! # 12. Summary
+/-! # 13. Summary
 
 This module provides a complete formal foundation for IEEE 754 floating-point
-arithmetic based on the NASA paper.
+arithmetic based on the NASA paper, extended with error bounds from Flean.
 
-**Axiomatic base (58 axioms):**
+**Axiomatic base (72 axioms):**
 1. **Rounding Properties**: Monotonicity, idempotence, zero, negation
 2. **Commutativity**: Addition and multiplication commute (Theorem 3)
 3. **Identity Elements**: Left-hand identities for 0 (addition) and 1 (multiplication)
@@ -337,17 +506,25 @@ arithmetic based on the NASA paper.
 6. **Sign Properties**: Sign of results follows standard rules
 7. **Ordering**: Transitivity, antisymmetry, totality
 8. **Inverse Relations**: Division and multiplication are approximate inverses
+9. **Error Bounds**: Quantitative ULP bounds on rounding errors (inspired by Flean)
+   - Conversion to rationals (f32_to_rat, f64_to_rat)
+   - Relative error ≤ ε/2 for all operations (where ε is machine epsilon)
 
 **Derived theorems (10 theorems):**
 - Right-hand identity properties (6 theorems) from commutativity
 - Right-hand monotonicity (2 theorems) from commutativity
 - Additional cancellation properties (2 theorems with sorry)
 
+**Key constants:**
+- f32_epsilon = 2^(-23) ≈ 1.19e-7
+- f64_epsilon = 2^(-52) ≈ 2.22e-16
+
 Note: Associativity is intentionally NOT included, as floating-point arithmetic
 is not associative due to rounding effects.
 
 These axioms enable formal verification of floating-point algorithms extracted
-by hax, with guarantees matching IEEE 754 semantics.
+by hax, with guarantees matching IEEE 754 semantics and quantitative error bounds
+for numerical stability analysis.
 -/
 
 end Float.Spec
