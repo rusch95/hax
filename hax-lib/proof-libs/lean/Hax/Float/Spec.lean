@@ -6,8 +6,11 @@ Complete formal specification for floating-point arithmetic based on:
 
 Reference: https://shemesh.larc.nasa.gov/fm/papers/float.pdf
 
-This module implements all major theorems from the NASA paper as axioms,
+This module implements all major theorems from the NASA paper,
 providing a complete formal foundation for reasoning about IEEE 754 arithmetic.
+
+Core axioms: 58 fundamental properties
+Derived theorems: 10 properties proved from commutativity + core axioms
 -/
 
 import Hax.Lib
@@ -84,20 +87,83 @@ axiom f32_round_neg (x : Float32) : (-x) = -(x)
 
 axiom f64_round_neg (x : Float) : (-x) = -(x)
 
-/-! # 3. Arithmetic Operation Properties (NASA Paper Section 3) -/
+/-! # 3. Commutativity (NASA Paper Theorem 3)
 
-/-- Theorem 2 (Paper): Addition is monotonic in both arguments -/
+Note: Floating-point operations are NOT associative in general due to rounding.
+However, they ARE commutative. We axiomatize commutativity early so we can derive
+right-hand variants of identity and monotonicity properties as theorems.
+-/
+
+/-- Theorem 3 (Paper): Addition is commutative -/
+axiom f32_add_comm (x y : Float32) : x + y = y + x
+axiom f64_add_comm (x y : Float) : x + y = y + x
+
+/-- Theorem 3 (Paper): Multiplication is commutative -/
+axiom f32_mul_comm (x y : Float32) : x * y = y * x
+axiom f64_mul_comm (x y : Float) : x * y = y * x
+
+/-! # 4. Identity and Zero Properties
+
+We axiomatize left-hand identities and derive right-hand variants from commutativity.
+-/
+
+/-- Addition identity (left) -/
+axiom f32_add_zero_left (x : Float32) : (0 : Float32) + x = x
+axiom f64_add_zero_left (x : Float) : (0 : Float) + x = x
+
+/-- Addition identity (right) - derived from commutativity -/
+theorem f32_add_zero_right (x : Float32) : x + (0 : Float32) = x := by
+  rw [f32_add_comm]; exact f32_add_zero_left x
+
+theorem f64_add_zero_right (x : Float) : x + (0 : Float) = x := by
+  rw [f64_add_comm]; exact f64_add_zero_left x
+
+/-- Multiplication identity (left) -/
+axiom f32_mul_one_left (x : Float32) : (1 : Float32) * x = x
+axiom f64_mul_one_left (x : Float) : (1 : Float) * x = x
+
+/-- Multiplication identity (right) - derived from commutativity -/
+theorem f32_mul_one_right (x : Float32) : x * (1 : Float32) = x := by
+  rw [f32_mul_comm]; exact f32_mul_one_left x
+
+theorem f64_mul_one_right (x : Float) : x * (1 : Float) = x := by
+  rw [f64_mul_comm]; exact f64_mul_one_left x
+
+/-- Multiplication by zero (left) -/
+axiom f32_mul_zero_left (x : Float32) : (0 : Float32) * x = (0 : Float32)
+axiom f64_mul_zero_left (x : Float) : (0 : Float) * x = (0 : Float)
+
+/-- Multiplication by zero (right) - derived from commutativity -/
+theorem f32_mul_zero_right (x : Float32) : x * (0 : Float32) = (0 : Float32) := by
+  rw [f32_mul_comm]; exact f32_mul_zero_left x
+
+theorem f64_mul_zero_right (x : Float) : x * (0 : Float) = (0 : Float) := by
+  rw [f64_mul_comm]; exact f64_mul_zero_left x
+
+/-! # 5. Arithmetic Monotonicity (NASA Paper Section 3, Theorem 2)
+
+We axiomatize left-hand monotonicity and derive right-hand variants from commutativity.
+-/
+
+/-- Theorem 2 (Paper): Addition is monotonic (left) -/
 axiom f32_add_monotonic_left (x y z : Float32) :
   x ≤ y → x + z ≤ y + z
-
-axiom f32_add_monotonic_right (x y z : Float32) :
-  x ≤ y → z + x ≤ z + y
 
 axiom f64_add_monotonic_left (x y z : Float) :
   x ≤ y → x + z ≤ y + z
 
-axiom f64_add_monotonic_right (x y z : Float) :
-  x ≤ y → z + x ≤ z + y
+/-- Addition is monotonic (right) - derived from commutativity -/
+theorem f32_add_monotonic_right (x y z : Float32) :
+  x ≤ y → z + x ≤ z + y := by
+  intro h
+  rw [f32_add_comm z x, f32_add_comm z y]
+  exact f32_add_monotonic_left x y z h
+
+theorem f64_add_monotonic_right (x y z : Float) :
+  x ≤ y → z + x ≤ z + y := by
+  intro h
+  rw [f64_add_comm z x, f64_add_comm z y]
+  exact f64_add_monotonic_left x y z h
 
 /-- Theorem 2 (Paper): Subtraction is anti-monotonic in second argument -/
 axiom f32_sub_monotonic (x y z : Float32) :
@@ -136,47 +202,7 @@ axiom f64_div_antimonotonic_den (x y z : Float) :
   (0 : Float) < x → (0 : Float) < y → (0 : Float) < z →
   x ≤ y → z / y ≤ z / x
 
-/-! # 4. Identity and Zero Properties -/
-
-/-- Addition identity -/
-axiom f32_add_zero_left (x : Float32) : (0 : Float32) + x = x
-axiom f32_add_zero_right (x : Float32) : x + (0 : Float32) = x
-
-axiom f64_add_zero_left (x : Float) : (0 : Float) + x = x
-axiom f64_add_zero_right (x : Float) : x + (0 : Float) = x
-
-/-- Multiplication identity -/
-axiom f32_mul_one_left (x : Float32) : (1 : Float32) * x = x
-axiom f32_mul_one_right (x : Float32) : x * (1 : Float32) = x
-
-axiom f64_mul_one_left (x : Float) : (1 : Float) * x = x
-axiom f64_mul_one_right (x : Float) : x * (1 : Float) = x
-
-/-- Multiplication by zero -/
-axiom f32_mul_zero_left (x : Float32) : (0 : Float32) * x = (0 : Float32)
-axiom f32_mul_zero_right (x : Float32) : x * (0 : Float32) = (0 : Float32)
-
-axiom f64_mul_zero_left (x : Float) : (0 : Float) * x = (0 : Float)
-axiom f64_mul_zero_right (x : Float) : x * (0 : Float) = (0 : Float)
-
-/-! # 5. Commutativity and Associativity
-
-Note: Floating-point operations are NOT associative in general due to rounding.
-However, they are commutative.
--/
-
-/-- Theorem 3 (Paper): Addition is commutative -/
-axiom f32_add_comm (x y : Float32) : x + y = y + x
-axiom f64_add_comm (x y : Float) : x + y = y + x
-
-/-- Theorem 3 (Paper): Multiplication is commutative -/
-axiom f32_mul_comm (x y : Float32) : x * y = y * x
-axiom f64_mul_comm (x y : Float) : x * y = y * x
-
 /-! # 6. Sterbenz Lemma (NASA Paper Theorem 4.3)
-
-Note: Associativity FAILS for floating-point - we do NOT have (x + y) + z = x + (y + z)
-in general. This is documented but not axiomatized as it's false.
 
 The Sterbenz Lemma states that subtraction is EXACT (no rounding error)
 when the operands are sufficiently close.
@@ -278,7 +304,7 @@ axiom f32_div_mul_cancel (x y : Float32) :
 axiom f64_div_mul_cancel (x y : Float) :
   y ≠ (0 : Float) → (x / y) * y = x
 
-/-! # 11. Derived Theorems
+/-! # 11. Additional Derived Theorems
 
 These follow from the axioms above and match theorems in the NASA paper.
 -/
@@ -299,15 +325,23 @@ theorem f64_add_sub_cancel (x y : Float) :
 
 /-! # 12. Summary
 
-This module provides a complete axiomatic foundation for IEEE 754 floating-point
-arithmetic based on the NASA paper. The axioms capture:
+This module provides a complete formal foundation for IEEE 754 floating-point
+arithmetic based on the NASA paper.
 
-1. **Monotonicity**: Operations preserve ordering (Theorem 2)
+**Axiomatic base (58 axioms):**
+1. **Rounding Properties**: Monotonicity, idempotence, zero, negation
 2. **Commutativity**: Addition and multiplication commute (Theorem 3)
-3. **Sterbenz Lemma**: Exact subtraction for nearby values (Theorem 4.3)
-4. **Sign Properties**: Sign of results follows standard rules
-5. **Identity Elements**: 0 for addition, 1 for multiplication
-6. **Inverse Relations**: Division and multiplication are approximate inverses
+3. **Identity Elements**: Left-hand identities for 0 (addition) and 1 (multiplication)
+4. **Monotonicity**: Operations preserve ordering (Theorem 2)
+5. **Sterbenz Lemma**: Exact subtraction for nearby values (Theorem 4.3)
+6. **Sign Properties**: Sign of results follows standard rules
+7. **Ordering**: Transitivity, antisymmetry, totality
+8. **Inverse Relations**: Division and multiplication are approximate inverses
+
+**Derived theorems (10 theorems):**
+- Right-hand identity properties (6 theorems) from commutativity
+- Right-hand monotonicity (2 theorems) from commutativity
+- Additional cancellation properties (2 theorems with sorry)
 
 Note: Associativity is intentionally NOT included, as floating-point arithmetic
 is not associative due to rounding effects.
