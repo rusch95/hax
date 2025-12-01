@@ -1,5 +1,6 @@
 import Hax.Lib
 import Hax.Integers.Ops
+import Hax.Float.Spec
 
 abbrev f32 := Float32
 abbrev f64 := Float

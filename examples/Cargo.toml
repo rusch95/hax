@@ -9,7 +9,8 @@ members = [
     "kyber_compress",
     "proverif-psk",
     "coq-example",
-    "coverage"]
+    "coverage",
+    "float_demo"]
 resolver = "2"
 
 [workspace.dependencies]
