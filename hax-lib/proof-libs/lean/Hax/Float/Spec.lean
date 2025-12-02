@@ -42,11 +42,14 @@ theorem abs_nonneg (q : Rat) : 0 ≤ abs q := by
   unfold abs
   split
   · assumption
-  · sorry  -- TODO: need lemma about negation preserving positivity
+  · -- q < 0, so abs q = -q, need to show 0 ≤ -q
+    simp only [not_le] at *
+    exact le_of_lt (neg_pos.mpr ‹q < 0›)
 
 theorem pow2_pos (n : Int) : 0 < pow2 n := by
   unfold pow2
-  sorry  -- TODO: need zpow_pos lemma from Mathlib
+  apply zpow_pos
+  · exact two_pos
 
 end Rat
 
