@@ -382,6 +382,29 @@ theorem div_antimonotonic_den (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
     exact div_le_div_of_nonneg_left (le_of_lt hz) hx hxy
   exact roundToFloat_monotonic cfg_prec cfg_emin cfg_emax mode _ _ h_div
 
+/-- Addition is monotonic (right) -/
+theorem add_monotonic_right (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (x y z : FloatRepr) :
+    x.le cfg_prec y →
+    (z.add cfg_prec cfg_emin cfg_emax mode x).le cfg_prec
+    (z.add cfg_prec cfg_emin cfg_emax mode y) := by
+  intro h
+  rw [add_comm cfg_prec cfg_emin cfg_emax mode z x,
+      add_comm cfg_prec cfg_emin cfg_emax mode z y]
+  exact add_monotonic_left cfg_prec cfg_emin cfg_emax mode x y z h
+
+/-- Multiplication is monotonic (left) -/
+theorem mul_monotonic_left (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (x y z : FloatRepr) :
+    (FloatRepr.zero cfg_emin).lt cfg_prec z →
+    x.le cfg_prec y →
+    (z.mul cfg_prec cfg_emin cfg_emax mode x).le cfg_prec
+    (z.mul cfg_prec cfg_emin cfg_emax mode y) := by
+  intro hz hxy
+  rw [mul_comm cfg_prec cfg_emin cfg_emax mode z x,
+      mul_comm cfg_prec cfg_emin cfg_emax mode z y]
+  exact mul_monotonic_pos cfg_prec cfg_emin cfg_emax mode x y z hz hxy
+
 /-! ## Binary32 Instance -/
 
 /-- Binary32 as a specific instantiation -/
