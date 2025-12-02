@@ -348,7 +348,7 @@ def FloatRepr.lt (cfg_prec : Nat) (x y : FloatRepr) : Prop :=
 /-- A FloatRepr is normalized if:
     - For zero: mantissa = 0
     - For non-zero: mantissa ∈ [2^prec, 2^(prec+1))
-    This ensures unique representation for each rational value. -/
+    This ensures unique representation for each non-zero rational value. -/
 def FloatRepr.isNormalized (cfg_prec : Nat) (f : FloatRepr) : Prop :=
   f.mantissa = 0 ∨ (2^cfg_prec ≤ f.mantissa ∧ f.mantissa < 2^(cfg_prec + 1))
 
@@ -406,17 +406,24 @@ axiom roundToFloat_monotonic (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
     x ≤ y → (roundToFloat cfg_prec cfg_emin cfg_emax mode x).le cfg_prec
             (roundToFloat cfg_prec cfg_emin cfg_emax mode y)
 
-/-- toRat is injective for normalized floats.
+/-- toRat is injective for non-zero normalized floats.
 
-    NOTE: This is FALSE for non-normalized floats! For example:
-    - {mantissa := 2, exponent := 1} and {mantissa := 4, exponent := 0}
-      both give toRat = 2^(-22) for cfg_prec = 24.
+    NOTE: For mantissa = 0, multiple representations give toRat = 0,
+    so injectivity requires non-zero mantissa.
 
-    For normalized floats (mantissa in [2^prec, 2^(prec+1)) or zero),
-    the representation is unique and toRat is injective. -/
-axiom to_rat_inj (cfg_prec : Nat) (x y : FloatRepr)
-    (hx : x.isNormalized cfg_prec) (hy : y.isNormalized cfg_prec) :
-    x.toRat cfg_prec = y.toRat cfg_prec → x = y
+    For normalized floats with non-zero mantissa (mantissa in [2^prec, 2^(prec+1))),
+    the representation is unique. -/
+theorem to_rat_inj (cfg_prec : Nat) (x y : FloatRepr)
+    (hx : x.isNormalized cfg_prec) (hy : y.isNormalized cfg_prec)
+    (hx_nz : x.mantissa ≠ 0) :
+    x.toRat cfg_prec = y.toRat cfg_prec → x = y := by
+  intro h_eq
+  -- The proof structure:
+  -- 1. Show y.mantissa ≠ 0 (since x.toRat ≠ 0 and they're equal)
+  -- 2. Show signs are equal (positive can't equal negative)
+  -- 3. Show mantissa and exponent are equal (uniqueness of normalized representation)
+  -- The full proof requires detailed analysis of the floating-point representation
+  sorry
 
 /-! ## Key Theorems (To Be Proven) -/
 
@@ -515,14 +522,15 @@ theorem le_trans (cfg_prec : Nat) (x y z : FloatRepr) :
   unfold FloatRepr.le
   exact _root_.le_trans
 
-/-- Antisymmetry of ≤ (for normalized floats) -/
+/-- Antisymmetry of ≤ (for non-zero normalized floats) -/
 theorem le_antisymm (cfg_prec : Nat) (x y : FloatRepr)
-    (hx : x.isNormalized cfg_prec) (hy : y.isNormalized cfg_prec) :
+    (hx : x.isNormalized cfg_prec) (hy : y.isNormalized cfg_prec)
+    (hx_nz : x.mantissa ≠ 0) :
     x.le cfg_prec y → y.le cfg_prec x → x = y := by
   unfold FloatRepr.le
   intro hxy hyx
   have heq := _root_.le_antisymm hxy hyx
-  exact to_rat_inj cfg_prec x y hx hy heq
+  exact to_rat_inj cfg_prec x y hx hy hx_nz heq
 
 /-- Totality of ≤ -/
 theorem le_total (cfg_prec : Nat) (x y : FloatRepr) :
