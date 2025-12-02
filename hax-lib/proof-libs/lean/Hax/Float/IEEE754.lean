@@ -98,6 +98,16 @@ def FloatRepr.toRat (cfg_prec : Nat) (f : FloatRepr) : Rat :=
 
 /-! ## Conversion Theorems -/
 
+/-- Natural numbers cast to Rat are non-negative -/
+theorem nat_cast_nonneg (n : Nat) : (0 : Rat) ≤ n := by
+  induction n with
+  | zero => rfl
+  | succ k ih =>
+    have h1 : (k : Rat) + 1 = ((k + 1 : Nat) : Rat) := by simp
+    rw [← h1]
+    have h2 : (0 : Rat) ≤ 1 := by decide
+    exact add_nonneg ih h2
+
 /-- Converting zero gives zero -/
 theorem toRat_zero (cfg_prec : Nat) (cfg_emin : Int) :
     (FloatRepr.zero cfg_emin).toRat cfg_prec = 0 := by
@@ -439,9 +449,19 @@ theorem roundToFloat_nonneg (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
   by_cases h : q = 0
   · simp only [h, roundToFloat, ite_true, toRat_zero, le_refl]
   · -- q > 0 (since q ≥ 0 and q ≠ 0)
-    -- roundToFloat of positive q has sign = false (positive)
-    -- toRat of a positive float gives non-negative result
-    sorry
+    have hq_pos : 0 < q := lt_of_le_of_ne hq (Ne.symm h)
+    have h_not_neg : ¬(q < 0) := not_lt.mpr (le_of_lt hq_pos)
+    -- Unfold roundToFloat for non-zero q
+    unfold roundToFloat
+    simp only [h, ite_false, h_not_neg]
+    -- The result has sign = false
+    -- toRat of sign=false returns mantissa * 2^(exp - prec) which is non-negative
+    unfold FloatRepr.toRat
+    simp only [ite_false]
+    -- mantissa is Nat cast to Rat (≥ 0), power of 2 is positive
+    apply mul_nonneg
+    · exact nat_cast_nonneg _
+    · apply zpow_nonneg; decide
 
 /-- Rounding a non-positive rational gives a non-positive float -/
 theorem roundToFloat_nonpos (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
@@ -450,9 +470,19 @@ theorem roundToFloat_nonpos (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
   by_cases h : q = 0
   · simp only [h, roundToFloat, ite_true, toRat_zero, le_refl]
   · -- q < 0 (since q ≤ 0 and q ≠ 0)
-    -- roundToFloat of negative q has sign = true (negative)
-    -- toRat of a negative float gives non-positive result
-    sorry
+    have hq_neg : q < 0 := lt_of_le_of_ne hq h
+    -- Unfold roundToFloat for non-zero q
+    unfold roundToFloat
+    simp only [h, ite_false, hq_neg]
+    -- The result has sign = true
+    -- toRat of sign=true returns -(mantissa * 2^(exp - prec))
+    unfold FloatRepr.toRat
+    simp only [ite_true]
+    -- -(non-negative) ≤ 0
+    apply neg_nonpos.mpr
+    apply mul_nonneg
+    · exact nat_cast_nonneg _
+    · apply zpow_nonneg; decide
 
 /-- Rounding preserves order.
 
@@ -487,8 +517,27 @@ theorem roundToFloat_monotonic (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
       exact roundToFloat_nonpos cfg_prec cfg_emin cfg_emax mode x h_le
     · -- x ≠ 0, y ≠ 0
       -- Main case: both non-zero
-      -- This requires the full monotonicity analysis
-      sorry
+      -- Sub-cases based on signs
+      by_cases hx_neg : x < 0
+      · -- x < 0
+        by_cases hy_pos : 0 < y
+        · -- x < 0 < y: use sign preservation
+          -- round(x) ≤ 0 by roundToFloat_nonpos
+          -- 0 ≤ round(y) by roundToFloat_nonneg
+          have h1 : (roundToFloat cfg_prec cfg_emin cfg_emax mode x).toRat cfg_prec ≤ 0 :=
+            roundToFloat_nonpos cfg_prec cfg_emin cfg_emax mode x (le_of_lt hx_neg)
+          have h2 : 0 ≤ (roundToFloat cfg_prec cfg_emin cfg_emax mode y).toRat cfg_prec :=
+            roundToFloat_nonneg cfg_prec cfg_emin cfg_emax mode y (le_of_lt hy_pos)
+          exact le_trans h1 h2
+        · -- x < 0 and y ≤ 0 (both negative)
+          -- This requires showing rounding preserves order for same-sign values
+          sorry
+      · -- x ≥ 0, but x ≠ 0, so x > 0
+        have hx_pos : 0 < x := lt_of_le_of_ne (not_lt.mp hx_neg) (Ne.symm hx)
+        -- Since x > 0 and x ≤ y, we have y > 0
+        have hy_pos : 0 < y := lt_of_lt_of_le hx_pos h_le
+        -- Both positive: requires showing rounding preserves order for positive values
+        sorry
 
 /-- toRat is injective for non-zero normalized floats.
 
@@ -502,11 +551,34 @@ theorem to_rat_inj (cfg_prec : Nat) (x y : FloatRepr)
     (hx_nz : x.mantissa ≠ 0) :
     x.toRat cfg_prec = y.toRat cfg_prec → x = y := by
   intro h_eq
-  -- The proof structure:
-  -- 1. Show y.mantissa ≠ 0 (since x.toRat ≠ 0 and they're equal)
-  -- 2. Show signs are equal (positive can't equal negative)
-  -- 3. Show mantissa and exponent are equal (uniqueness of normalized representation)
-  -- The full proof requires detailed analysis of the floating-point representation
+  -- Step 1: Show y.mantissa ≠ 0 (since x.toRat ≠ 0 and they're equal)
+  have hx_toRat_ne : x.toRat cfg_prec ≠ 0 := by
+    unfold FloatRepr.toRat
+    simp only [ne_eq]
+    intro h
+    have h_pow_ne : (2 : Rat) ^ (x.exponent - (cfg_prec : Int)) ≠ 0 := by
+      apply zpow_ne_zero; decide
+    split_ifs at h with hsign
+    · -- sign = true: -(m * 2^e) = 0 implies m * 2^e = 0
+      have h' : (x.mantissa : Rat) * (2 : Rat) ^ (x.exponent - cfg_prec) = 0 := neg_eq_zero.mp h
+      rcases mul_eq_zero.mp h' with h_mant | h_pow
+      · simp only [Nat.cast_eq_zero] at h_mant
+        exact hx_nz h_mant
+      · exact absurd h_pow h_pow_ne
+    · -- sign = false
+      rcases mul_eq_zero.mp h with h_mant | h_pow
+      · simp only [Nat.cast_eq_zero] at h_mant
+        exact hx_nz h_mant
+      · exact absurd h_pow h_pow_ne
+  have hy_nz : y.mantissa ≠ 0 := by
+    intro h_y_zero
+    have hy_toRat : y.toRat cfg_prec = 0 := by
+      unfold FloatRepr.toRat
+      simp only [h_y_zero, Nat.cast_zero, zero_mul, neg_zero, ite_self]
+    rw [← h_eq] at hy_toRat
+    exact hx_toRat_ne hy_toRat
+  -- Step 2-3: Show signs, mantissa, and exponent are equal
+  -- This requires showing uniqueness of normalized representation
   sorry
 
 /-! ## Key Theorems (To Be Proven) -/
