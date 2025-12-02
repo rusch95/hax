@@ -577,9 +577,132 @@ theorem to_rat_inj (cfg_prec : Nat) (x y : FloatRepr)
       simp only [h_y_zero, Nat.cast_zero, zero_mul, neg_zero, ite_self]
     rw [← h_eq] at hy_toRat
     exact hx_toRat_ne hy_toRat
-  -- Step 2-3: Show signs, mantissa, and exponent are equal
-  -- This requires showing uniqueness of normalized representation
-  sorry
+  -- Step 2: Show signs are equal
+  -- Key insight: toRat > 0 iff sign = false (for non-zero mantissa)
+  -- Since toRat values are equal and non-zero, signs must match
+  have h_sign_eq : x.sign = y.sign := by
+    -- Both toRat values are non-zero. If signs differ, one is positive and one negative.
+    by_contra h_ne
+    -- Helper: for non-zero natural n, (n : Rat) > 0
+    have nat_pos_of_ne_zero : ∀ n : Nat, n ≠ 0 → (0 : Rat) < n := by
+      intro n hn
+      cases n with
+      | zero => exact absurd rfl hn
+      | succ k => simp only [Nat.cast_succ]; apply add_pos_of_nonneg_of_pos (nat_cast_nonneg k); decide
+    -- Helper: 2^z > 0 for any integer z
+    have two_zpow_pos : ∀ z : Int, (0 : Rat) < (2 : Rat) ^ z := by
+      intro z
+      apply zpow_pos
+      decide
+    -- Extract the "base" values (mantissa * 2^(exp-prec))
+    have hx_base_pos : 0 < (x.mantissa : Rat) * (2 : Rat) ^ (x.exponent - cfg_prec) := by
+      apply mul_pos
+      · exact nat_pos_of_ne_zero x.mantissa hx_nz
+      · exact two_zpow_pos _
+    have hy_base_pos : 0 < (y.mantissa : Rat) * (2 : Rat) ^ (y.exponent - cfg_prec) := by
+      apply mul_pos
+      · exact nat_pos_of_ne_zero y.mantissa hy_nz
+      · exact two_zpow_pos _
+    -- If x.sign ≠ y.sign, one toRat is positive, one is negative
+    unfold FloatRepr.toRat at h_eq
+    rcases hx_s : x.sign with _ | _
+    <;> rcases hy_s : y.sign with _ | _
+    <;> simp only [hx_s, hy_s, Bool.false_eq_true, not_false_eq_true, not_true_eq_false] at h_ne
+    -- Case: x.sign = false, y.sign = true
+    · simp only [hx_s, hy_s, Bool.false_eq_true, ite_false, ite_true] at h_eq
+      -- Now h_eq : base_x = -base_y
+      -- After rewrite, hx_base_pos becomes 0 < -(base_y) which contradicts h_neg
+      rw [h_eq] at hx_base_pos
+      -- hx_base_pos : 0 < -(y.mantissa * 2^...)
+      -- Convert to: 0 < -(y.mantissa) * 2^... using neg_mul symmetry
+      rw [← neg_mul] at hx_base_pos
+      -- Now prove contradiction: hy_base_pos says base_y > 0, so -base_y < 0
+      have h_neg : -(y.mantissa : Rat) * (2 : Rat) ^ (y.exponent - cfg_prec) < 0 := by
+        rw [neg_mul]
+        exact neg_neg_of_pos hy_base_pos
+      exact absurd hx_base_pos (not_lt.mpr (le_of_lt h_neg))
+    -- Case: x.sign = true, y.sign = false
+    · simp only [hx_s, hy_s, Bool.false_eq_true, ite_false, ite_true] at h_eq
+      -- Now h_eq : -base_x = base_y
+      rw [← h_eq] at hy_base_pos
+      -- hy_base_pos : 0 < -(x.mantissa * 2^...)
+      rw [← neg_mul] at hy_base_pos
+      have h_neg : -(x.mantissa : Rat) * (2 : Rat) ^ (x.exponent - cfg_prec) < 0 := by
+        rw [neg_mul]
+        exact neg_neg_of_pos hx_base_pos
+      exact absurd hy_base_pos (not_lt.mpr (le_of_lt h_neg))
+  -- Step 3: Show mantissa and exponent are equal
+  -- With signs equal, the absolute values must be equal:
+  -- m_x * 2^(e_x - prec) = m_y * 2^(e_y - prec)
+  -- For normalized floats with m in [2^prec, 2^(prec+1)), this uniquely determines (m, e)
+
+  -- First extract the equality of base values (mantissa * 2^(exp-prec))
+  have h_base_eq : (x.mantissa : Rat) * (2 : Rat) ^ (x.exponent - cfg_prec) =
+                   (y.mantissa : Rat) * (2 : Rat) ^ (y.exponent - cfg_prec) := by
+    unfold FloatRepr.toRat at h_eq
+    simp only [h_sign_eq] at h_eq
+    split_ifs at h_eq with hs
+    · -- sign = true, so both are negations
+      exact neg_inj.mp h_eq
+    · -- sign = false
+      exact h_eq
+
+  -- Get normalized bounds for x and y
+  have hx_bounds : 2 ^ cfg_prec ≤ x.mantissa ∧ x.mantissa < 2 ^ (cfg_prec + 1) := by
+    unfold FloatRepr.isNormalized at hx
+    rcases hx with h_zero | h_norm
+    · exact absurd h_zero hx_nz
+    · exact h_norm
+  have hy_bounds : 2 ^ cfg_prec ≤ y.mantissa ∧ y.mantissa < 2 ^ (cfg_prec + 1) := by
+    unfold FloatRepr.isNormalized at hy
+    rcases hy with h_zero | h_norm
+    · exact absurd h_zero hy_nz
+    · exact h_norm
+
+  -- The key uniqueness property: for normalized mantissas in [2^k, 2^(k+1)),
+  -- if m1 * 2^e1 = m2 * 2^e2 (as rationals), then m1 = m2 and e1 = e2.
+  -- This is because the ranges don't overlap when scaled by different powers of 2.
+  --
+  -- Proof sketch: WLOG assume e1 ≤ e2. Then m1 * 2^e1 = m2 * 2^e2 implies
+  -- m1 = m2 * 2^(e2 - e1). Since m1 < 2^(k+1) and m2 ≥ 2^k,
+  -- we need 2^(e2-e1) * 2^k ≤ m1 < 2^(k+1), so 2^(e2-e1+k) ≤ m1 < 2^(k+1).
+  -- This requires e2 - e1 ≤ 0 (since otherwise LHS ≥ 2^(k+1)).
+  -- Combined with e1 ≤ e2, we get e1 = e2, hence m1 = m2.
+
+  -- For now, this requires substantial integer/rational arithmetic lemmas
+  -- that may not be readily available. Using sorry to mark this as to-be-proven.
+  --
+  -- The key uniqueness property: for normalized mantissas in [2^k, 2^(k+1)),
+  -- if m1 * 2^e1 = m2 * 2^e2 (as rationals), then m1 = m2 and e1 = e2.
+  -- This is because the ranges don't overlap when scaled by different powers of 2.
+  --
+  -- Proof sketch: WLOG assume e1 < e2. Then m1 * 2^e1 = m2 * 2^e2 implies
+  -- m1 = m2 * 2^(e2 - e1). Since e2 - e1 ≥ 1, we have 2^(e2 - e1) ≥ 2.
+  -- So m1 = m2 * 2^(e2 - e1) ≥ m2 * 2 ≥ 2^k * 2 = 2^(k+1).
+  -- But m1 < 2^(k+1), contradiction. By symmetry, e1 > e2 also leads to contradiction.
+  -- Therefore e1 = e2, and then m1 = m2 follows from cancellation.
+  have h_exp_eq : x.exponent = y.exponent := by
+    sorry
+  have h_mant_eq : x.mantissa = y.mantissa := by
+    -- From h_base_eq and h_exp_eq
+    have h2 : (x.mantissa : Rat) * (2 : Rat) ^ (y.exponent - cfg_prec) =
+              (y.mantissa : Rat) * (2 : Rat) ^ (y.exponent - cfg_prec) := by
+      have h_base_eq' := h_base_eq
+      rw [h_exp_eq] at h_base_eq'
+      exact h_base_eq'
+    have h_pow_ne : (2 : Rat) ^ (y.exponent - (cfg_prec : Int)) ≠ 0 := by
+      apply zpow_ne_zero; decide
+    have h3 : (x.mantissa : Rat) = (y.mantissa : Rat) := by
+      have := mul_right_cancel₀ h_pow_ne h2
+      exact this
+    exact Nat.cast_injective h3
+
+  -- Finally, construct the equality of FloatRepr records
+  have h_eq_struct : x = y := by
+    cases x; cases y
+    simp only [FloatRepr.mk.injEq]
+    exact ⟨h_sign_eq, h_mant_eq, h_exp_eq⟩
+  exact h_eq_struct
 
 /-! ## Key Theorems (To Be Proven) -/
 
