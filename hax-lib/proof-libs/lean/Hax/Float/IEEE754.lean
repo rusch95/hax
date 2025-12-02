@@ -513,20 +513,24 @@ open Binary32
 /-! ### Zero and Identity -/
 
 example : FloatRepr.zero exponent_min + FloatRepr.zero exponent_min =
-          FloatRepr.zero exponent_min := by sorry
+          FloatRepr.zero exponent_min := by
+  exact add_zero_left precision exponent_min exponent_max RoundMode.ToNearestEven (FloatRepr.zero exponent_min)
 
 example : FloatRepr.one precision + FloatRepr.zero exponent_min =
-          FloatRepr.one precision := by sorry
+          FloatRepr.one precision := by
+  exact add_zero_right precision exponent_min exponent_max RoundMode.ToNearestEven (FloatRepr.one precision)
 
 example : FloatRepr.one precision * FloatRepr.one precision =
-          FloatRepr.one precision := by sorry
+          FloatRepr.one precision := by
+  exact mul_one_right precision exponent_min exponent_max RoundMode.ToNearestEven (FloatRepr.one precision)
 
 /-! ### Negation -/
 
 example : (FloatRepr.one precision).neg + FloatRepr.one precision =
           FloatRepr.zero exponent_min := by sorry
 
-example : (FloatRepr.one precision).neg.neg = FloatRepr.one precision := by sorry
+example : (FloatRepr.one precision).neg.neg = FloatRepr.one precision := by
+  exact neg_neg (FloatRepr.one precision)
 
 -- Negation preserves magnitude
 example (x : FloatRepr) : (x.neg).toRat precision = -(x.toRat precision) := by
@@ -557,10 +561,28 @@ def epsilon : FloatRepr :=
   { sign := false, mantissa := 2^24, exponent := -23 }
 
 example : smallest_normal.toRat precision =
-          Float.Spec.Rat.pow2 (-126) := by sorry
+          Float.Spec.Rat.pow2 (-126) := by
+  unfold smallest_normal FloatRepr.toRat Float.Spec.Rat.pow2 precision
+  simp only [Bool.false_eq_true, ↓reduceIte]
+  have h1 : ((2^24 : Nat) : Rat) = (2 : Rat) ^ (24 : Int) := by
+    rw [Nat.cast_pow, Nat.cast_ofNat]
+    exact (zpow_natCast (2 : Rat) 24).symm
+  simp only [h1]
+  have two_ne_zero : (2 : Rat) ≠ 0 := by decide
+  rw [← zpow_add₀ two_ne_zero]
+  congr 1
 
 example : epsilon.toRat precision =
-          Float.Spec.Rat.pow2 (-23) := by sorry
+          Float.Spec.Rat.pow2 (-23) := by
+  unfold epsilon FloatRepr.toRat Float.Spec.Rat.pow2 precision
+  simp only [Bool.false_eq_true, ↓reduceIte]
+  have h1 : ((2^24 : Nat) : Rat) = (2 : Rat) ^ (24 : Int) := by
+    rw [Nat.cast_pow, Nat.cast_ofNat]
+    exact (zpow_natCast (2 : Rat) 24).symm
+  simp only [h1]
+  have two_ne_zero : (2 : Rat) ≠ 0 := by decide
+  rw [← zpow_add₀ two_ne_zero]
+  congr 1
 
 /-! ### Boundary Values - Large Numbers -/
 
@@ -587,10 +609,22 @@ def half : FloatRepr :=
   { sign := false, mantissa := 2^24, exponent := -1 }
 
 example : two.toRat precision =
-          ((2 : Nat) : Rat) := by sorry
+          ((2 : Nat) : Rat) := by
+  unfold two FloatRepr.toRat precision
+  simp only [Bool.false_eq_true, ↓reduceIte]
+  have h1 : ((2^24 : Nat) : Rat) = (2 : Rat) ^ (24 : Int) := by
+    rw [Nat.cast_pow, Nat.cast_ofNat]
+    exact (zpow_natCast (2 : Rat) 24).symm
+  simp only [h1]
+  have two_ne_zero : (2 : Rat) ≠ 0 := by decide
+  rw [← zpow_add₀ two_ne_zero]
+  have h2 : (24 : Int) + (1 - (24 : Nat)) = 1 := by decide
+  rw [h2]
+  simp only [zpow_one, Nat.cast_ofNat]
 
 example : half.toRat precision + half.toRat precision =
-          (FloatRepr.one precision).toRat precision := by sorry
+          (FloatRepr.one precision).toRat precision := by
+  native_decide
 
 /-! ### Catastrophic Cancellation -/
 
