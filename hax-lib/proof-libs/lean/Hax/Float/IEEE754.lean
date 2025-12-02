@@ -432,11 +432,63 @@ theorem roundToFloat_idempotent (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
     --   Normalization is idempotent, exponent is unchanged
     sorry
 
-/-- Axiom: Rounding preserves order -/
-axiom roundToFloat_monotonic (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+/-- Rounding a non-negative rational gives a non-negative float -/
+theorem roundToFloat_nonneg (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (q : Rat) (hq : 0 ≤ q) :
+    0 ≤ (roundToFloat cfg_prec cfg_emin cfg_emax mode q).toRat cfg_prec := by
+  by_cases h : q = 0
+  · simp only [h, roundToFloat, ite_true, toRat_zero, le_refl]
+  · -- q > 0 (since q ≥ 0 and q ≠ 0)
+    -- roundToFloat of positive q has sign = false (positive)
+    -- toRat of a positive float gives non-negative result
+    sorry
+
+/-- Rounding a non-positive rational gives a non-positive float -/
+theorem roundToFloat_nonpos (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (q : Rat) (hq : q ≤ 0) :
+    (roundToFloat cfg_prec cfg_emin cfg_emax mode q).toRat cfg_prec ≤ 0 := by
+  by_cases h : q = 0
+  · simp only [h, roundToFloat, ite_true, toRat_zero, le_refl]
+  · -- q < 0 (since q ≤ 0 and q ≠ 0)
+    -- roundToFloat of negative q has sign = true (negative)
+    -- toRat of a negative float gives non-positive result
+    sorry
+
+/-- Rounding preserves order.
+
+    This is a fundamental property of IEEE 754 rounding:
+    if x ≤ y then round(x) ≤ round(y) for any rounding mode.
+
+    The proof requires showing that roundToFloat is monotonic,
+    which follows from:
+    1. The representable float values form a well-ordered set
+    2. Rounding maps each rational to a nearby representable value
+    3. The rounding operation preserves the relative order -/
+theorem roundToFloat_monotonic (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
     (mode : RoundMode) (x y : Rat) :
     x ≤ y → (roundToFloat cfg_prec cfg_emin cfg_emax mode x).le cfg_prec
-            (roundToFloat cfg_prec cfg_emin cfg_emax mode y)
+            (roundToFloat cfg_prec cfg_emin cfg_emax mode y) := by
+  intro h_le
+  unfold FloatRepr.le
+  -- We need to show: (roundToFloat ... x).toRat ≤ (roundToFloat ... y).toRat
+  -- Case analysis on x and y being zero
+  by_cases hx : x = 0
+  · -- x = 0
+    simp only [hx] at h_le ⊢
+    simp only [roundToFloat, ite_true, toRat_zero]
+    -- Since 0 ≤ y, roundToFloat y is non-negative
+    exact roundToFloat_nonneg cfg_prec cfg_emin cfg_emax mode y h_le
+  · by_cases hy : y = 0
+    · -- x ≠ 0, y = 0
+      -- Since x ≤ 0 and x ≠ 0, we have x < 0
+      simp only [hy] at h_le ⊢
+      simp only [roundToFloat, ite_true, toRat_zero]
+      -- roundToFloat of negative x should give non-positive result
+      exact roundToFloat_nonpos cfg_prec cfg_emin cfg_emax mode x h_le
+    · -- x ≠ 0, y ≠ 0
+      -- Main case: both non-zero
+      -- This requires the full monotonicity analysis
+      sorry
 
 /-- toRat is injective for non-zero normalized floats.
 
