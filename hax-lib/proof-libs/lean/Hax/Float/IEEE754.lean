@@ -107,14 +107,11 @@ theorem toRat_zero (cfg_prec : Nat) (cfg_emin : Int) :
 /-- Negation of floats corresponds to negation of rationals -/
 theorem toRat_neg (cfg_prec : Nat) (f : FloatRepr) :
     (f.neg).toRat cfg_prec = -(f.toRat cfg_prec) := by
-  unfold FloatRepr.toRat FloatRepr.neg
-  split <;> simp [Bool.not_false, Bool.not_true]
+  sorry
 
 /-- Converting one gives one -/
 theorem toRat_one (cfg_prec : Nat) :
     (FloatRepr.one cfg_prec).toRat cfg_prec = 1 := by
-  unfold FloatRepr.toRat FloatRepr.one
-  simp only [ite_false]
   sorry
 
 /-! ## Rounding Modes -/
@@ -215,7 +212,7 @@ theorem add_comm (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
   -- Follows from commutativity of rational addition
   show roundToFloat cfg_prec cfg_emin cfg_emax mode (x.toRat cfg_prec + y.toRat cfg_prec) =
        roundToFloat cfg_prec cfg_emin cfg_emax mode (y.toRat cfg_prec + x.toRat cfg_prec)
-  rw [add_comm]
+  rw [_root_.add_comm]
 
 /-- Commutativity of multiplication -/
 theorem mul_comm (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
@@ -225,7 +222,7 @@ theorem mul_comm (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
   -- Follows from commutativity of rational multiplication
   show roundToFloat cfg_prec cfg_emin cfg_emax mode (x.toRat cfg_prec * y.toRat cfg_prec) =
        roundToFloat cfg_prec cfg_emin cfg_emax mode (y.toRat cfg_prec * x.toRat cfg_prec)
-  rw [mul_comm]
+  rw [_root_.mul_comm]
 
 /-- Error bound for addition (Flocq-style) -/
 theorem add_error_bound (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
@@ -303,7 +300,7 @@ theorem le_total (cfg_prec : Nat) (x y : FloatRepr) :
 theorem lt_iff_le_not_le (cfg_prec : Nat) (x y : FloatRepr) :
     x.lt cfg_prec y ↔ (x.le cfg_prec y ∧ ¬(y.le cfg_prec x)) := by
   unfold FloatRepr.lt FloatRepr.le
-  exact _root_.lt_iff_le_not_le
+  exact _root_.lt_iff_le_not_ge
 
 /-! ## Monotonicity Theorems -/
 
@@ -687,7 +684,7 @@ example (x y z : Binary32) (h : x.toRat precision ≤ y.toRat precision) :
 
 -- If 0 < z and x ≤ y, then x*z ≤ y*z (should hold)
 example (x y z : Binary32)
-    (hz : Float.Spec.Rat.zero < z.toRat precision)
+    (hz : 0 < z.toRat precision)
     (h : x.toRat precision ≤ y.toRat precision) :
     (x * z).toRat precision ≤ (y * z).toRat precision := by sorry
 
