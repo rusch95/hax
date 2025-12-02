@@ -527,7 +527,12 @@ example : FloatRepr.one precision * FloatRepr.one precision =
 /-! ### Negation -/
 
 example : (FloatRepr.one precision).neg + FloatRepr.one precision =
-          FloatRepr.zero exponent_min := by sorry
+          FloatRepr.zero exponent_min := by
+  show (FloatRepr.one precision).neg.add precision exponent_min exponent_max RoundMode.ToNearestEven (FloatRepr.one precision) = FloatRepr.zero exponent_min
+  unfold FloatRepr.add
+  simp only [toRat_neg, toRat_one, neg_add_cancel]
+  rw [← toRat_zero precision exponent_min]
+  exact roundToFloat_idempotent precision exponent_min exponent_max RoundMode.ToNearestEven (FloatRepr.zero exponent_min)
 
 example : (FloatRepr.one precision).neg.neg = FloatRepr.one precision := by
   exact neg_neg (FloatRepr.one precision)
@@ -778,13 +783,21 @@ example : let x := FloatRepr.one precision
 
 -- If x ≤ y, then x + z ≤ y + z (should hold)
 example (x y z : Binary32) (h : x.toRat precision ≤ y.toRat precision) :
-    (x + z).toRat precision ≤ (y + z).toRat precision := by sorry
+    (x + z).toRat precision ≤ (y + z).toRat precision := by
+  have h' : x.le precision y := h
+  exact add_monotonic_left precision exponent_min exponent_max RoundMode.ToNearestEven x y z h'
 
 -- If 0 < z and x ≤ y, then x*z ≤ y*z (should hold)
 example (x y z : Binary32)
     (hz : 0 < z.toRat precision)
     (h : x.toRat precision ≤ y.toRat precision) :
-    (x * z).toRat precision ≤ (y * z).toRat precision := by sorry
+    (x * z).toRat precision ≤ (y * z).toRat precision := by
+  have hz' : (FloatRepr.zero exponent_min).lt precision z := by
+    unfold FloatRepr.lt
+    simp only [toRat_zero]
+    exact hz
+  have h' : x.le precision y := h
+  exact mul_monotonic_pos precision exponent_min exponent_max RoundMode.ToNearestEven x y z hz' h'
 
 end Float.IEEE754.Examples
 
