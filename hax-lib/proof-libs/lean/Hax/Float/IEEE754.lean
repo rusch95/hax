@@ -107,7 +107,13 @@ theorem toRat_zero (cfg_prec : Nat) (cfg_emin : Int) :
 /-- Negation of floats corresponds to negation of rationals -/
 theorem toRat_neg (cfg_prec : Nat) (f : FloatRepr) :
     (f.neg).toRat cfg_prec = -(f.toRat cfg_prec) := by
-  sorry
+  unfold FloatRepr.toRat FloatRepr.neg
+  -- Split on f.sign
+  cases f.sign
+  · -- f.sign = false, so f.neg.sign = true
+    simp [Bool.not_false]
+  · -- f.sign = true, so f.neg.sign = false
+    simp [Bool.not_true, neg_neg]
 
 /-- Converting one gives one -/
 theorem toRat_one (cfg_prec : Nat) :
