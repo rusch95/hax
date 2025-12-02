@@ -393,12 +393,44 @@ theorem roundToFloat_isNormalized (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
     exact normalizeMantissa_isNormalized cfg_prec mantissa_rounded e_approx
       (mantissa_rounded + cfg_prec) h_fuel
 
-/-! ## Core Axioms -/
+/-! ## Core Theorems -/
 
-/-- Axiom: Rounding a float is idempotent -/
-axiom roundToFloat_idempotent (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
-    (mode : RoundMode) (x : FloatRepr) :
-    roundToFloat cfg_prec cfg_emin cfg_emax mode (x.toRat cfg_prec) = x
+/-- Rounding a normalized float's rational value back gives the same float.
+
+    For this to hold, x must be:
+    1. Normalized (mantissa in [2^prec, 2^(prec+1)) or zero)
+    2. Have exponent in valid range [cfg_emin, cfg_emax]
+    3. If mantissa = 0, x must be the canonical zero (FloatRepr.zero cfg_emin)
+
+    The proof requires showing that:
+    - log2Rat gives the correct exponent for normalized floats
+    - roundRatToNat returns the same value for an integer input
+    - normalizeMantissa is idempotent for normalized mantissa
+    - Exponent clamping doesn't change valid exponents -/
+theorem roundToFloat_idempotent (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (x : FloatRepr)
+    (hx_norm : x.isNormalized cfg_prec)
+    (hx_exp_lo : cfg_emin ≤ x.exponent)
+    (hx_exp_hi : x.exponent ≤ cfg_emax)
+    (hx_canonical_zero : x.mantissa = 0 → x = FloatRepr.zero cfg_emin) :
+    roundToFloat cfg_prec cfg_emin cfg_emax mode (x.toRat cfg_prec) = x := by
+  -- Split by whether mantissa is zero
+  by_cases h_zero : x.mantissa = 0
+  · -- Case 1: x.mantissa = 0
+    -- By hx_canonical_zero, x = FloatRepr.zero cfg_emin
+    have hx_eq := hx_canonical_zero h_zero
+    rw [hx_eq]
+    -- toRat of zero is 0
+    simp only [toRat_zero]
+    -- roundToFloat of 0 is FloatRepr.zero cfg_emin
+    unfold roundToFloat
+    simp
+  · -- Case 2: x.mantissa ≠ 0 (non-zero normalized)
+    --   toRat = ±mantissa * 2^(exp - prec)
+    --   log2Rat should give exp (since mantissa ∈ [2^prec, 2^(prec+1)))
+    --   Scaling gives mantissa exactly (integer, no rounding needed)
+    --   Normalization is idempotent, exponent is unchanged
+    sorry
 
 /-- Axiom: Rounding preserves order -/
 axiom roundToFloat_monotonic (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
@@ -459,46 +491,76 @@ theorem add_error_bound (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
 
 /-! ## Identity Theorems -/
 
-/-- Zero is left identity for addition -/
+/-- Zero is left identity for addition (for normalized floats in range) -/
 theorem add_zero_left (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
-    (mode : RoundMode) (x : FloatRepr) :
+    (mode : RoundMode) (x : FloatRepr)
+    (hx_norm : x.isNormalized cfg_prec)
+    (hx_exp_lo : cfg_emin ≤ x.exponent)
+    (hx_exp_hi : x.exponent ≤ cfg_emax)
+    (hx_canonical_zero : x.mantissa = 0 → x = FloatRepr.zero cfg_emin) :
     (FloatRepr.zero cfg_emin).add cfg_prec cfg_emin cfg_emax mode x = x := by
   unfold FloatRepr.add
   simp only [toRat_zero, zero_add]
-  exact roundToFloat_idempotent cfg_prec cfg_emin cfg_emax mode x
+  exact roundToFloat_idempotent cfg_prec cfg_emin cfg_emax mode x hx_norm hx_exp_lo hx_exp_hi
+    hx_canonical_zero
 
-/-- One is left identity for multiplication -/
+/-- One is left identity for multiplication (for normalized floats in range) -/
 theorem mul_one_left (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
-    (mode : RoundMode) (x : FloatRepr) :
+    (mode : RoundMode) (x : FloatRepr)
+    (hx_norm : x.isNormalized cfg_prec)
+    (hx_exp_lo : cfg_emin ≤ x.exponent)
+    (hx_exp_hi : x.exponent ≤ cfg_emax)
+    (hx_canonical_zero : x.mantissa = 0 → x = FloatRepr.zero cfg_emin) :
     (FloatRepr.one cfg_prec).mul cfg_prec cfg_emin cfg_emax mode x = x := by
   unfold FloatRepr.mul
   simp only [toRat_one, one_mul]
-  exact roundToFloat_idempotent cfg_prec cfg_emin cfg_emax mode x
+  exact roundToFloat_idempotent cfg_prec cfg_emin cfg_emax mode x hx_norm hx_exp_lo hx_exp_hi
+    hx_canonical_zero
 
-/-- Zero is right identity for addition -/
+/-- Zero is right identity for addition (for normalized floats in range) -/
 theorem add_zero_right (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
-    (mode : RoundMode) (x : FloatRepr) :
+    (mode : RoundMode) (x : FloatRepr)
+    (hx_norm : x.isNormalized cfg_prec)
+    (hx_exp_lo : cfg_emin ≤ x.exponent)
+    (hx_exp_hi : x.exponent ≤ cfg_emax)
+    (hx_canonical_zero : x.mantissa = 0 → x = FloatRepr.zero cfg_emin) :
     x.add cfg_prec cfg_emin cfg_emax mode (FloatRepr.zero cfg_emin) = x := by
   rw [add_comm]
-  exact add_zero_left cfg_prec cfg_emin cfg_emax mode x
+  exact add_zero_left cfg_prec cfg_emin cfg_emax mode x hx_norm hx_exp_lo hx_exp_hi hx_canonical_zero
 
-/-- One is right identity for multiplication -/
+/-- One is right identity for multiplication (for normalized floats in range) -/
 theorem mul_one_right (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
-    (mode : RoundMode) (x : FloatRepr) :
+    (mode : RoundMode) (x : FloatRepr)
+    (hx_norm : x.isNormalized cfg_prec)
+    (hx_exp_lo : cfg_emin ≤ x.exponent)
+    (hx_exp_hi : x.exponent ≤ cfg_emax)
+    (hx_canonical_zero : x.mantissa = 0 → x = FloatRepr.zero cfg_emin) :
     x.mul cfg_prec cfg_emin cfg_emax mode (FloatRepr.one cfg_prec) = x := by
   rw [mul_comm]
-  exact mul_one_left cfg_prec cfg_emin cfg_emax mode x
+  exact mul_one_left cfg_prec cfg_emin cfg_emax mode x hx_norm hx_exp_lo hx_exp_hi hx_canonical_zero
 
-/-- Division by self equals one (for non-zero values) -/
+/-- Division by self equals one (for non-zero values, when one is in range) -/
 theorem div_self (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
-    (mode : RoundMode) (x : FloatRepr) :
+    (mode : RoundMode) (x : FloatRepr)
+    (h_one_exp_lo : cfg_emin ≤ (0 : Int))
+    (h_one_exp_hi : (0 : Int) ≤ cfg_emax) :
     x.toRat cfg_prec ≠ 0 →
     x.div cfg_prec cfg_emin cfg_emax mode x = FloatRepr.one cfg_prec := by
   intro hne
   unfold FloatRepr.div
   simp only [_root_.div_self hne]
   rw [← toRat_one]
+  have h_one_norm : (FloatRepr.one cfg_prec).isNormalized cfg_prec := one_isNormalized cfg_prec
+  -- FloatRepr.one has exponent = 0
+  have h_exp_lo : cfg_emin ≤ (FloatRepr.one cfg_prec).exponent := h_one_exp_lo
+  have h_exp_hi : (FloatRepr.one cfg_prec).exponent ≤ cfg_emax := h_one_exp_hi
+  -- FloatRepr.one has non-zero mantissa, so canonical_zero is vacuously true
+  have h_one_nz : (FloatRepr.one cfg_prec).mantissa ≠ 0 := by
+    unfold FloatRepr.one
+    simp only [ne_eq]
+    exact Nat.pos_iff_ne_zero.mp (Nat.pow_pos (by omega))
   exact roundToFloat_idempotent cfg_prec cfg_emin cfg_emax mode (FloatRepr.one cfg_prec)
+    h_one_norm h_exp_lo h_exp_hi (fun h => absurd h h_one_nz)
 
 /-! ## Negation Theorems -/
 
@@ -716,15 +778,31 @@ open Binary32
 
 example : FloatRepr.zero exponent_min + FloatRepr.zero exponent_min =
           FloatRepr.zero exponent_min := by
-  exact add_zero_left precision exponent_min exponent_max RoundMode.ToNearestEven (FloatRepr.zero exponent_min)
+  have h_norm := zero_isNormalized precision exponent_min
+  have h_exp_lo : exponent_min ≤ (FloatRepr.zero exponent_min).exponent := Int.le_refl _
+  have h_exp_hi : (FloatRepr.zero exponent_min).exponent ≤ exponent_max := by decide
+  exact add_zero_left precision exponent_min exponent_max RoundMode.ToNearestEven
+    (FloatRepr.zero exponent_min) h_norm h_exp_lo h_exp_hi (fun _ => rfl)
 
 example : FloatRepr.one precision + FloatRepr.zero exponent_min =
           FloatRepr.one precision := by
-  exact add_zero_right precision exponent_min exponent_max RoundMode.ToNearestEven (FloatRepr.one precision)
+  have h_norm := one_isNormalized precision
+  have h_exp_lo : exponent_min ≤ (FloatRepr.one precision).exponent := by decide
+  have h_exp_hi : (FloatRepr.one precision).exponent ≤ exponent_max := by decide
+  have h_nz : (FloatRepr.one precision).mantissa ≠ 0 := by
+    unfold FloatRepr.one; exact Nat.pos_iff_ne_zero.mp (Nat.pow_pos (by omega))
+  exact add_zero_right precision exponent_min exponent_max RoundMode.ToNearestEven
+    (FloatRepr.one precision) h_norm h_exp_lo h_exp_hi (fun h => absurd h h_nz)
 
 example : FloatRepr.one precision * FloatRepr.one precision =
           FloatRepr.one precision := by
-  exact mul_one_right precision exponent_min exponent_max RoundMode.ToNearestEven (FloatRepr.one precision)
+  have h_norm := one_isNormalized precision
+  have h_exp_lo : exponent_min ≤ (FloatRepr.one precision).exponent := by decide
+  have h_exp_hi : (FloatRepr.one precision).exponent ≤ exponent_max := by decide
+  have h_nz : (FloatRepr.one precision).mantissa ≠ 0 := by
+    unfold FloatRepr.one; exact Nat.pos_iff_ne_zero.mp (Nat.pow_pos (by omega))
+  exact mul_one_right precision exponent_min exponent_max RoundMode.ToNearestEven
+    (FloatRepr.one precision) h_norm h_exp_lo h_exp_hi (fun h => absurd h h_nz)
 
 /-! ### Negation -/
 
@@ -734,7 +812,11 @@ example : (FloatRepr.one precision).neg + FloatRepr.one precision =
   unfold FloatRepr.add
   simp only [toRat_neg, toRat_one, neg_add_cancel]
   rw [← toRat_zero precision exponent_min]
-  exact roundToFloat_idempotent precision exponent_min exponent_max RoundMode.ToNearestEven (FloatRepr.zero exponent_min)
+  have h_norm := zero_isNormalized precision exponent_min
+  have h_exp_lo : exponent_min ≤ (FloatRepr.zero exponent_min).exponent := Int.le_refl _
+  have h_exp_hi : (FloatRepr.zero exponent_min).exponent ≤ exponent_max := by decide
+  exact roundToFloat_idempotent precision exponent_min exponent_max RoundMode.ToNearestEven
+    (FloatRepr.zero exponent_min) h_norm h_exp_lo h_exp_hi (fun _ => rfl)
 
 example : (FloatRepr.one precision).neg.neg = FloatRepr.one precision := by
   exact neg_neg (FloatRepr.one precision)
