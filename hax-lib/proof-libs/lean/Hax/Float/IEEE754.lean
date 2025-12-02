@@ -281,6 +281,39 @@ def FloatRepr.le (cfg_prec : Nat) (x y : FloatRepr) : Prop :=
 def FloatRepr.lt (cfg_prec : Nat) (x y : FloatRepr) : Prop :=
   x.toRat cfg_prec < y.toRat cfg_prec
 
+/-! ## Normalization -/
+
+/-- A FloatRepr is normalized if:
+    - For zero: mantissa = 0
+    - For non-zero: mantissa ∈ [2^prec, 2^(prec+1))
+    This ensures unique representation for each rational value. -/
+def FloatRepr.isNormalized (cfg_prec : Nat) (f : FloatRepr) : Prop :=
+  f.mantissa = 0 ∨ (2^cfg_prec ≤ f.mantissa ∧ f.mantissa < 2^(cfg_prec + 1))
+
+/-- Zero is normalized -/
+theorem zero_isNormalized (cfg_prec : Nat) (cfg_emin : Int) :
+    (FloatRepr.zero cfg_emin).isNormalized cfg_prec := by
+  left
+  rfl
+
+/-- One is normalized -/
+theorem one_isNormalized (cfg_prec : Nat) :
+    (FloatRepr.one cfg_prec).isNormalized cfg_prec := by
+  unfold FloatRepr.isNormalized FloatRepr.one
+  right
+  constructor
+  · exact Nat.le_refl _
+  · exact Nat.lt_two_pow_self cfg_prec
+
+/-- roundToFloat produces normalized floats -/
+theorem roundToFloat_isNormalized (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (q : Rat) :
+    (roundToFloat cfg_prec cfg_emin cfg_emax mode q).isNormalized cfg_prec := by
+  unfold roundToFloat FloatRepr.isNormalized
+  -- This is a complex proof about the rounding algorithm
+  -- For now, we leave it as sorry and document it should be proven
+  sorry
+
 /-! ## Core Axioms -/
 
 /-- Axiom: Rounding a float is idempotent -/
@@ -294,8 +327,16 @@ axiom roundToFloat_monotonic (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
     x ≤ y → (roundToFloat cfg_prec cfg_emin cfg_emax mode x).le cfg_prec
             (roundToFloat cfg_prec cfg_emin cfg_emax mode y)
 
-/-- Axiom: toRat is injective -/
-axiom to_rat_inj (cfg_prec : Nat) (x y : FloatRepr) :
+/-- toRat is injective for normalized floats.
+
+    NOTE: This is FALSE for non-normalized floats! For example:
+    - {mantissa := 2, exponent := 1} and {mantissa := 4, exponent := 0}
+      both give toRat = 2^(-22) for cfg_prec = 24.
+
+    For normalized floats (mantissa in [2^prec, 2^(prec+1)) or zero),
+    the representation is unique and toRat is injective. -/
+axiom to_rat_inj (cfg_prec : Nat) (x y : FloatRepr)
+    (hx : x.isNormalized cfg_prec) (hy : y.isNormalized cfg_prec) :
     x.toRat cfg_prec = y.toRat cfg_prec → x = y
 
 /-! ## Key Theorems (To Be Proven) -/
@@ -362,18 +403,13 @@ theorem mul_one_right (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
   rw [mul_comm]
   exact mul_one_left cfg_prec cfg_emin cfg_emax mode x
 
-/-- Division by self equals one -/
+/-- Division by self equals one (for non-zero values) -/
 theorem div_self (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
     (mode : RoundMode) (x : FloatRepr) :
-    x ≠ FloatRepr.zero cfg_emin →
+    x.toRat cfg_prec ≠ 0 →
     x.div cfg_prec cfg_emin cfg_emax mode x = FloatRepr.one cfg_prec := by
-  intro hx
+  intro hne
   unfold FloatRepr.div
-  have hne : x.toRat cfg_prec ≠ 0 := by
-    intro hn
-    rw [← toRat_zero cfg_prec cfg_emin] at hn
-    have : x = FloatRepr.zero cfg_emin := to_rat_inj cfg_prec x (FloatRepr.zero cfg_emin) hn
-    exact hx this
   simp only [_root_.div_self hne]
   rw [← toRat_one]
   exact roundToFloat_idempotent cfg_prec cfg_emin cfg_emax mode (FloatRepr.one cfg_prec)
@@ -400,13 +436,14 @@ theorem le_trans (cfg_prec : Nat) (x y z : FloatRepr) :
   unfold FloatRepr.le
   exact _root_.le_trans
 
-/-- Antisymmetry of ≤ -/
-theorem le_antisymm (cfg_prec : Nat) (x y : FloatRepr) :
+/-- Antisymmetry of ≤ (for normalized floats) -/
+theorem le_antisymm (cfg_prec : Nat) (x y : FloatRepr)
+    (hx : x.isNormalized cfg_prec) (hy : y.isNormalized cfg_prec) :
     x.le cfg_prec y → y.le cfg_prec x → x = y := by
   unfold FloatRepr.le
   intro hxy hyx
   have heq := _root_.le_antisymm hxy hyx
-  exact to_rat_inj cfg_prec x y heq
+  exact to_rat_inj cfg_prec x y hx hy heq
 
 /-- Totality of ≤ -/
 theorem le_total (cfg_prec : Nat) (x y : FloatRepr) :
