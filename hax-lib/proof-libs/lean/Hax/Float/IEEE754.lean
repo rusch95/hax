@@ -78,9 +78,9 @@ structure Binary64Config where
 def FloatRepr.zero (cfg_emin : Int) : FloatRepr :=
   { sign := false, mantissa := 0, exponent := cfg_emin }
 
-/-- One representation -/
+/-- One representation: significand = 2^cfg_prec * 2^(-cfg_prec) = 1.0 -/
 def FloatRepr.one (cfg_prec : Nat) : FloatRepr :=
-  { sign := false, mantissa := 2^(cfg_prec-1), exponent := 0 }
+  { sign := false, mantissa := 2^cfg_prec, exponent := 0 }
 
 /-- Negation (flip sign bit) -/
 def FloatRepr.neg (f : FloatRepr) : FloatRepr :=
@@ -118,7 +118,19 @@ theorem toRat_neg (cfg_prec : Nat) (f : FloatRepr) :
 /-- Converting one gives one -/
 theorem toRat_one (cfg_prec : Nat) :
     (FloatRepr.one cfg_prec).toRat cfg_prec = 1 := by
-  sorry
+  unfold FloatRepr.toRat FloatRepr.one
+  simp only [Bool.false_eq_true, ↓reduceIte]
+  -- Goal: (↑(2 ^ cfg_prec) : Rat) * 2 ^ (0 - ↑cfg_prec) = 1
+  -- Simplify 0 - cfg_prec to -cfg_prec
+  simp only [Int.zero_sub]
+  -- Convert 2^cfg_prec to zpow
+  have h1 : ((2^cfg_prec : Nat) : Rat) = (2 : Rat) ^ (cfg_prec : Int) := by
+    simp only [Nat.cast_pow, Nat.cast_ofNat, zpow_natCast]
+  rw [h1]
+  -- Now goal is 2^cfg_prec * 2^(-cfg_prec) = 1
+  have two_ne_zero : (2 : Rat) ≠ 0 := by decide
+  rw [← zpow_add₀ two_ne_zero]
+  simp only [add_neg_cancel, zpow_zero]
 
 /-! ## Rounding Modes -/
 
@@ -432,7 +444,7 @@ instance : Zero Binary32 where
   zero := { sign := false, mantissa := 0, exponent := exponent_min }
 
 instance : One Binary32 where
-  one := { sign := false, mantissa := (2^(precision-1)), exponent := 0 }
+  one := { sign := false, mantissa := 2^precision, exponent := 0 }
 
 /-
 Future work: Prove that Binary32 satisfies FloatSpec axioms
@@ -533,15 +545,16 @@ example (x y : Binary32) : x * y = y * x := by
 
 -- Smallest positive normal number: 1.0 × 2^-126
 def smallest_normal : FloatRepr :=
-  { sign := false, mantissa := 2^23, exponent := -126 }
+  { sign := false, mantissa := 2^24, exponent := -126 }
 
 -- Largest subnormal: (1 - 2^-23) × 2^-126 ≈ 0.999999940395... × 2^-126
+-- Note: Subnormals use different representation (significand in [0,1) not [1,2))
 def largest_subnormal : FloatRepr :=
-  { sign := false, mantissa := 2^23 - 1, exponent := -126 }
+  { sign := false, mantissa := 2^24 - 1, exponent := -126 }
 
 -- Machine epsilon: 2^-23 (smallest x such that 1+x ≠ 1 in float32)
 def epsilon : FloatRepr :=
-  { sign := false, mantissa := 2^23, exponent := -23 }
+  { sign := false, mantissa := 2^24, exponent := -23 }
 
 example : smallest_normal.toRat precision =
           Float.Spec.Rat.pow2 (-126) := by sorry
@@ -563,15 +576,15 @@ def overflow_threshold : FloatRepr :=
 
 -- 2^0 = 1
 example : FloatRepr.one precision =
-          { sign := false, mantissa := 2^23, exponent := 0 } := by rfl
+          { sign := false, mantissa := 2^24, exponent := 0 } := by rfl
 
 -- 2^1 = 2
 def two : FloatRepr :=
-  { sign := false, mantissa := 2^23, exponent := 1 }
+  { sign := false, mantissa := 2^24, exponent := 1 }
 
 -- 2^-1 = 0.5
 def half : FloatRepr :=
-  { sign := false, mantissa := 2^23, exponent := -1 }
+  { sign := false, mantissa := 2^24, exponent := -1 }
 
 example : two.toRat precision =
           ((2 : Nat) : Rat) := by sorry
