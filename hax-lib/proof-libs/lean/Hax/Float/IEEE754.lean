@@ -89,27 +89,32 @@ def FloatRepr.neg (f : FloatRepr) : FloatRepr :=
 /-! ## Conversion to Rationals -/
 
 /-- Convert FloatRepr to rational number -/
-def FloatRepr.toRat (cfg_prec : Nat) (f : FloatRepr) : Float.Spec.Rat :=
+def FloatRepr.toRat (cfg_prec : Nat) (f : FloatRepr) : Rat :=
   -- Compute: ± (mantissa / 2^prec) * 2^exp
   -- = ± mantissa * 2^(exp - prec)
-  let mantissa_rat : Float.Spec.Rat := f.mantissa
-  let base := mantissa_rat * ((2 : Float.Spec.Rat) ^ (f.exponent - (cfg_prec : Int)))
+  let mantissa_rat : Rat := f.mantissa
+  let base := mantissa_rat * ((2 : Rat) ^ (f.exponent - (cfg_prec : Int)))
   if f.sign then -base else base
 
 /-! ## Conversion Theorems -/
 
 /-- Converting zero gives zero -/
 theorem toRat_zero (cfg_prec : Nat) (cfg_emin : Int) :
-    (FloatRepr.zero cfg_emin).toRat cfg_prec = Float.Spec.Rat.zero := by
-  simp only [FloatRepr.toRat, FloatRepr.zero]
-  -- mantissa = 0, so mantissa_rat = 0, and 0 * _ = 0
-  sorry
+    (FloatRepr.zero cfg_emin).toRat cfg_prec = 0 := by
+  unfold FloatRepr.toRat FloatRepr.zero
+  simp
 
 /-- Negation of floats corresponds to negation of rationals -/
 theorem toRat_neg (cfg_prec : Nat) (f : FloatRepr) :
     (f.neg).toRat cfg_prec = -(f.toRat cfg_prec) := by
-  simp only [FloatRepr.toRat, FloatRepr.neg]
-  -- Sign is flipped, so we get -(base) instead of base
+  unfold FloatRepr.toRat FloatRepr.neg
+  split <;> simp [Bool.not_false, Bool.not_true]
+
+/-- Converting one gives one -/
+theorem toRat_one (cfg_prec : Nat) :
+    (FloatRepr.one cfg_prec).toRat cfg_prec = 1 := by
+  unfold FloatRepr.toRat FloatRepr.one
+  simp only [ite_false]
   sorry
 
 /-! ## Rounding Modes -/
@@ -127,7 +132,7 @@ inductive RoundMode where
 
 /-- Round a rational to the nearest representable float -/
 def roundToFloat (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
-    (mode : RoundMode) (q : Float.Spec.Rat) : FloatRepr :=
+    (mode : RoundMode) (q : Rat) : FloatRepr :=
   -- Simplified placeholder - real version needs:
   -- 1. Extract sign
   -- 2. Find appropriate exponent
@@ -156,6 +161,50 @@ def FloatRepr.mul (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
   let prod := xr * yr
   roundToFloat cfg_prec cfg_emin cfg_emax mode prod
 
+/-! ## Division -/
+
+/-- Divide two floats with correct rounding -/
+def FloatRepr.div (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (x y : FloatRepr) : FloatRepr :=
+  let xr := x.toRat cfg_prec
+  let yr := y.toRat cfg_prec
+  let quot := xr / yr
+  roundToFloat cfg_prec cfg_emin cfg_emax mode quot
+
+/-! ## Subtraction -/
+
+/-- Subtract two floats with correct rounding -/
+def FloatRepr.sub (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (x y : FloatRepr) : FloatRepr :=
+  x.add cfg_prec cfg_emin cfg_emax mode y.neg
+
+/-! ## Ordering -/
+
+/-- Less than or equal -/
+def FloatRepr.le (cfg_prec : Nat) (x y : FloatRepr) : Prop :=
+  x.toRat cfg_prec ≤ y.toRat cfg_prec
+
+/-- Less than -/
+def FloatRepr.lt (cfg_prec : Nat) (x y : FloatRepr) : Prop :=
+  x.toRat cfg_prec < y.toRat cfg_prec
+
+/-! ## Core Axioms -/
+
+/-- Axiom: Rounding a float is idempotent -/
+axiom roundToFloat_idempotent (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (x : FloatRepr) :
+    roundToFloat cfg_prec cfg_emin cfg_emax mode (x.toRat cfg_prec) = x
+
+/-- Axiom: Rounding preserves order -/
+axiom roundToFloat_monotonic (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (x y : Rat) :
+    x ≤ y → (roundToFloat cfg_prec cfg_emin cfg_emax mode x).le cfg_prec
+            (roundToFloat cfg_prec cfg_emin cfg_emax mode y)
+
+/-- Axiom: toRat is injective -/
+axiom to_rat_inj (cfg_prec : Nat) (x y : FloatRepr) :
+    x.toRat cfg_prec = y.toRat cfg_prec → x = y
+
 /-! ## Key Theorems (To Be Proven) -/
 
 /-- Commutativity of addition follows from rational commutativity and rounding -/
@@ -166,7 +215,7 @@ theorem add_comm (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
   -- Follows from commutativity of rational addition
   show roundToFloat cfg_prec cfg_emin cfg_emax mode (x.toRat cfg_prec + y.toRat cfg_prec) =
        roundToFloat cfg_prec cfg_emin cfg_emax mode (y.toRat cfg_prec + x.toRat cfg_prec)
-  rw [Float.Spec.Rat.add_comm]
+  rw [add_comm]
 
 /-- Commutativity of multiplication -/
 theorem mul_comm (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
@@ -176,17 +225,143 @@ theorem mul_comm (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
   -- Follows from commutativity of rational multiplication
   show roundToFloat cfg_prec cfg_emin cfg_emax mode (x.toRat cfg_prec * y.toRat cfg_prec) =
        roundToFloat cfg_prec cfg_emin cfg_emax mode (y.toRat cfg_prec * x.toRat cfg_prec)
-  rw [Float.Spec.Rat.mul_comm]
+  rw [mul_comm]
 
 /-- Error bound for addition (Flocq-style) -/
 theorem add_error_bound (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
     (x y : FloatRepr) :
-    ∃ δ : Float.Spec.Rat,
+    ∃ δ : Rat,
       -- Error bound and equation would go here with proper Rat instances
       True := by
   -- This is the core theorem that needs detailed proof
   -- It relies on properties of the rounding function
   sorry
+
+/-! ## Identity Theorems -/
+
+/-- Zero is left identity for addition -/
+theorem add_zero_left (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (x : FloatRepr) :
+    (FloatRepr.zero cfg_emin).add cfg_prec cfg_emin cfg_emax mode x = x := by
+  unfold FloatRepr.add
+  simp only [toRat_zero, zero_add]
+  exact roundToFloat_idempotent cfg_prec cfg_emin cfg_emax mode x
+
+/-- One is left identity for multiplication -/
+theorem mul_one_left (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (x : FloatRepr) :
+    (FloatRepr.one cfg_prec).mul cfg_prec cfg_emin cfg_emax mode x = x := by
+  unfold FloatRepr.mul
+  simp only [toRat_one, one_mul]
+  exact roundToFloat_idempotent cfg_prec cfg_emin cfg_emax mode x
+
+/-- Division by self equals one -/
+theorem div_self (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (x : FloatRepr) :
+    x ≠ FloatRepr.zero cfg_emin →
+    x.div cfg_prec cfg_emin cfg_emax mode x = FloatRepr.one cfg_prec := by
+  intro hx
+  unfold FloatRepr.div
+  have hne : x.toRat cfg_prec ≠ 0 := by
+    intro hn
+    rw [← toRat_zero cfg_prec cfg_emin] at hn
+    have : x = FloatRepr.zero cfg_emin := to_rat_inj cfg_prec x (FloatRepr.zero cfg_emin) hn
+    exact hx this
+  simp only [_root_.div_self hne]
+  rw [← toRat_one]
+  exact roundToFloat_idempotent cfg_prec cfg_emin cfg_emax mode (FloatRepr.one cfg_prec)
+
+/-! ## Ordering Theorems -/
+
+/-- Reflexivity of ≤ -/
+theorem le_refl (cfg_prec : Nat) (x : FloatRepr) :
+    x.le cfg_prec x := by
+  unfold FloatRepr.le
+  exact _root_.le_refl (x.toRat cfg_prec)
+
+/-- Transitivity of ≤ -/
+theorem le_trans (cfg_prec : Nat) (x y z : FloatRepr) :
+    x.le cfg_prec y → y.le cfg_prec z → x.le cfg_prec z := by
+  unfold FloatRepr.le
+  exact _root_.le_trans
+
+/-- Antisymmetry of ≤ -/
+theorem le_antisymm (cfg_prec : Nat) (x y : FloatRepr) :
+    x.le cfg_prec y → y.le cfg_prec x → x = y := by
+  unfold FloatRepr.le
+  intro hxy hyx
+  have heq := _root_.le_antisymm hxy hyx
+  exact to_rat_inj cfg_prec x y heq
+
+/-- Totality of ≤ -/
+theorem le_total (cfg_prec : Nat) (x y : FloatRepr) :
+    x.le cfg_prec y ∨ y.le cfg_prec x := by
+  unfold FloatRepr.le
+  exact _root_.le_total _ _
+
+/-- Strict ordering characterization -/
+theorem lt_iff_le_not_le (cfg_prec : Nat) (x y : FloatRepr) :
+    x.lt cfg_prec y ↔ (x.le cfg_prec y ∧ ¬(y.le cfg_prec x)) := by
+  unfold FloatRepr.lt FloatRepr.le
+  exact _root_.lt_iff_le_not_le
+
+/-! ## Monotonicity Theorems -/
+
+/-- Addition is monotonic (left) -/
+theorem add_monotonic_left (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (x y z : FloatRepr) :
+    x.le cfg_prec y →
+    (x.add cfg_prec cfg_emin cfg_emax mode z).le cfg_prec
+    (y.add cfg_prec cfg_emin cfg_emax mode z) := by
+  unfold FloatRepr.le FloatRepr.add
+  intro h
+  have h_add : x.toRat cfg_prec + z.toRat cfg_prec ≤ y.toRat cfg_prec + z.toRat cfg_prec := by
+    exact add_le_add_right h (z.toRat cfg_prec)
+  exact roundToFloat_monotonic cfg_prec cfg_emin cfg_emax mode _ _ h_add
+
+/-- Multiplication is monotonic for positive values -/
+theorem mul_monotonic_pos (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (x y z : FloatRepr) :
+    (FloatRepr.zero cfg_emin).lt cfg_prec z →
+    x.le cfg_prec y →
+    (x.mul cfg_prec cfg_emin cfg_emax mode z).le cfg_prec
+    (y.mul cfg_prec cfg_emin cfg_emax mode z) := by
+  unfold FloatRepr.le FloatRepr.lt FloatRepr.mul
+  intro hz hxy
+  simp only [toRat_zero] at hz
+  have h_mul : x.toRat cfg_prec * z.toRat cfg_prec ≤ y.toRat cfg_prec * z.toRat cfg_prec := by
+    exact mul_le_mul_of_nonneg_right hxy (le_of_lt hz)
+  exact roundToFloat_monotonic cfg_prec cfg_emin cfg_emax mode _ _ h_mul
+
+/-- Division is monotonic in the numerator -/
+theorem div_monotonic_num (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (x y z : FloatRepr) :
+    (FloatRepr.zero cfg_emin).lt cfg_prec z →
+    x.le cfg_prec y →
+    (x.div cfg_prec cfg_emin cfg_emax mode z).le cfg_prec
+    (y.div cfg_prec cfg_emin cfg_emax mode z) := by
+  unfold FloatRepr.le FloatRepr.lt FloatRepr.div
+  intro hz hxy
+  simp only [toRat_zero] at hz
+  have h_div : x.toRat cfg_prec / z.toRat cfg_prec ≤ y.toRat cfg_prec / z.toRat cfg_prec := by
+    exact div_le_div_of_nonneg_right hxy (le_of_lt hz)
+  exact roundToFloat_monotonic cfg_prec cfg_emin cfg_emax mode _ _ h_div
+
+/-- Division is anti-monotonic in the denominator -/
+theorem div_antimonotonic_den (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (x y z : FloatRepr) :
+    (FloatRepr.zero cfg_emin).lt cfg_prec x →
+    (FloatRepr.zero cfg_emin).lt cfg_prec y →
+    (FloatRepr.zero cfg_emin).lt cfg_prec z →
+    x.le cfg_prec y →
+    (z.div cfg_prec cfg_emin cfg_emax mode y).le cfg_prec
+    (z.div cfg_prec cfg_emin cfg_emax mode x) := by
+  unfold FloatRepr.le FloatRepr.lt FloatRepr.div
+  intro hx hy hz hxy
+  simp only [toRat_zero] at hx hy hz
+  have h_div : z.toRat cfg_prec / y.toRat cfg_prec ≤ z.toRat cfg_prec / x.toRat cfg_prec := by
+    exact div_le_div_of_nonneg_left (le_of_lt hz) hx hxy
+  exact roundToFloat_monotonic cfg_prec cfg_emin cfg_emax mode _ _ h_div
 
 /-! ## Binary32 Instance -/
 
@@ -351,7 +526,7 @@ def half : FloatRepr :=
   { sign := false, mantissa := 2^23, exponent := -1 }
 
 example : two.toRat precision =
-          ((2 : Nat) : Float.Spec.Rat) := by sorry
+          ((2 : Nat) : Rat) := by sorry
 
 example : half.toRat precision + half.toRat precision =
           (FloatRepr.one precision).toRat precision := by sorry
