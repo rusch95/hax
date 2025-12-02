@@ -252,6 +252,20 @@ theorem mul_one_left (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
   simp only [toRat_one, one_mul]
   exact roundToFloat_idempotent cfg_prec cfg_emin cfg_emax mode x
 
+/-- Zero is right identity for addition -/
+theorem add_zero_right (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (x : FloatRepr) :
+    x.add cfg_prec cfg_emin cfg_emax mode (FloatRepr.zero cfg_emin) = x := by
+  rw [add_comm]
+  exact add_zero_left cfg_prec cfg_emin cfg_emax mode x
+
+/-- One is right identity for multiplication -/
+theorem mul_one_right (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (x : FloatRepr) :
+    x.mul cfg_prec cfg_emin cfg_emax mode (FloatRepr.one cfg_prec) = x := by
+  rw [mul_comm]
+  exact mul_one_left cfg_prec cfg_emin cfg_emax mode x
+
 /-- Division by self equals one -/
 theorem div_self (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
     (mode : RoundMode) (x : FloatRepr) :
@@ -267,6 +281,14 @@ theorem div_self (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
   simp only [_root_.div_self hne]
   rw [← toRat_one]
   exact roundToFloat_idempotent cfg_prec cfg_emin cfg_emax mode (FloatRepr.one cfg_prec)
+
+/-! ## Negation Theorems -/
+
+/-- Double negation equals identity -/
+theorem neg_neg (f : FloatRepr) :
+    f.neg.neg = f := by
+  unfold FloatRepr.neg
+  simp [Bool.not_not]
 
 /-! ## Ordering Theorems -/
 
