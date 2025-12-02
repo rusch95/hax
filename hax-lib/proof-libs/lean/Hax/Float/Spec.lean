@@ -399,10 +399,7 @@ theorem sub_relative_error (x y : α) :
   · calc to_rat (x - y) = to_rat (x + (-y)) := by rw [h_sub]
       _ = (to_rat x + to_rat (-y)) * (1 + δ) := h_add
       _ = (to_rat x + (-(to_rat y))) * (1 + δ) := by rw [to_rat_neg y]
-      _ = (to_rat x - to_rat y) * (1 + δ) := by
-        -- TODO: This should be provable but requires right tactic/imports
-        -- Subtraction is definitionally a + (-b), but proving in this context is tricky
-        sorry
+      _ = (to_rat x - to_rat y) * (1 + δ) := by rw [← Rat.sub_eq_add_neg]
 
 /-! ## Sign Properties -/
 
