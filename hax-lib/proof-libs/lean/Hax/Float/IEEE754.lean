@@ -1117,7 +1117,21 @@ theorem normalized_value_le_input_floor (cfg_prec : Nat) (q : Rat) (hq : 0 < q) 
     _ = q := by simp
 
 /-- For ceiling-based rounding (TowardPositive), the normalized float value
-    is at least the input value. -/
+    is at least the input value.
+
+    This is the dual of normalized_value_le_input_floor. The proof is more subtle because:
+    1. roundRatToNat gives ceiling, so rounded ≥ scaled
+    2. normalizeMantissa may divide by 2 (losing precision) for large mantissas
+    3. However, the ceiling rounding adds enough margin to compensate for normalization loss
+
+    The key insight is that:
+    - scaled = q * 2^(prec - log2Rat(q))
+    - By log2Rat_bounds, scaled ∈ (2^(prec-1), 2^(prec+2))
+    - Ceiling gives rounded ∈ [2^(prec-1)+1, 2^(prec+2)]
+    - After normalization, the value is approximately rounded * 2^(log2Rat(q) - prec) ≥ q
+
+    A complete proof would track the exact bounds through normalization. Empirically verified
+    for many test cases but left as sorry for now. -/
 theorem normalized_value_ge_input_ceil (cfg_prec : Nat) (q : Rat) (hq : 0 < q) :
     let e := log2Rat q
     let scaled := q * (2 : Rat) ^ ((cfg_prec : Int) - e)
