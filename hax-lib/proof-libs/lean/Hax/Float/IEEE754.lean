@@ -197,6 +197,55 @@ inductive RoundMode where
 def log2Nat (n : Nat) : Nat :=
   if n ≤ 1 then 0 else 1 + log2Nat (n / 2)
 
+/-- log2Nat of a power of 2 -/
+theorem log2Nat_pow2 (k : Nat) : log2Nat (2^k) = k := by
+  induction k with
+  | zero => unfold log2Nat; simp
+  | succ n ih =>
+    unfold log2Nat
+    have h1 : ¬(2^(n+1) ≤ 1) := by
+      have : 2^(n+1) ≥ 2 := Nat.pow_le_pow_right (by omega : 1 ≤ 2) (by omega : 1 ≤ n+1)
+      omega
+    simp only [h1, ↓reduceIte]
+    have h2 : 2^(n+1) / 2 = 2^n := by
+      rw [Nat.pow_succ, Nat.mul_div_cancel_left _ (by omega : 0 < 2)]
+    rw [h2, ih]
+
+/-- log2Nat for values in [2^k, 2^(k+1)) -/
+theorem log2Nat_normalized (m k : Nat) (h_lo : 2^k ≤ m) (h_hi : m < 2^(k+1)) :
+    log2Nat m = k := by
+  induction k generalizing m with
+  | zero =>
+    -- m ∈ [1, 2), so m = 1
+    have h1 : m ≥ 1 := h_lo
+    have h2 : m < 2 := h_hi
+    have h_eq : m = 1 := by omega
+    rw [h_eq]
+    unfold log2Nat
+    simp
+  | succ n ih =>
+    -- m ∈ [2^(n+1), 2^(n+2))
+    unfold log2Nat
+    have h1 : ¬(m ≤ 1) := by
+      have : m ≥ 2^(n+1) := h_lo
+      have : 2^(n+1) ≥ 2 := Nat.pow_le_pow_right (by omega : 1 ≤ 2) (by omega : 1 ≤ n+1)
+      omega
+    simp only [h1, ↓reduceIte]
+    -- Now need: 1 + log2Nat(m/2) = n+1
+    -- So log2Nat(m/2) = n
+    -- m/2 ∈ [2^n, 2^(n+1))
+    have h_lo' : 2^n ≤ m / 2 := by
+      have h2 : m ≥ 2^(n+1) := h_lo
+      have h3 : 2^(n+1) = 2 * 2^n := Nat.pow_succ 2 n
+      rw [h3] at h2
+      exact Nat.le_div_two_iff_le_mul_two (2^n) m |>.mpr h2
+    have h_hi' : m / 2 < 2^(n+1) := by
+      have h2 : m < 2^(n+2) := h_hi
+      have h3 : 2^(n+2) = 2 * 2^(n+1) := Nat.pow_succ 2 (n+1)
+      rw [h3] at h2
+      exact Nat.div_lt_of_lt_mul h2
+    rw [ih (m/2) h_lo' h_hi']
+
 /-- Compute floor(log2(|q|)) for a non-zero rational q.
     Returns an approximation based on numerator/denominator bit lengths. -/
 def log2Rat (q : Rat) : Int :=
@@ -291,6 +340,43 @@ theorem normalizeMantissa_isNormalized (cfg_prec : Nat) (mantissa : Nat) (exp : 
           constructor
           · exact Nat.not_lt.mp h_not_small
           · exact Nat.not_le.mp h_not_big
+
+/-- If mantissa is already normalized, normalizeMantissa returns it unchanged -/
+theorem normalizeMantissa_already_normalized (cfg_prec : Nat) (mantissa : Nat) (exp : Int) (fuel : Nat)
+    (h_lo : 2^cfg_prec ≤ mantissa) (h_hi : mantissa < 2^(cfg_prec + 1)) :
+    normalizeMantissa cfg_prec mantissa exp fuel = (mantissa, exp) := by
+  cases fuel with
+  | zero => unfold normalizeMantissa; simp
+  | succ n =>
+    unfold normalizeMantissa
+    simp only [Nat.add_one_ne_zero, ↓reduceIte]
+    -- mantissa ≠ 0 (since mantissa ≥ 2^cfg_prec > 0)
+    have h_nonzero : mantissa ≠ 0 := by
+      intro h
+      rw [h] at h_lo
+      have : 2^cfg_prec > 0 := Nat.pow_pos (by omega : 0 < 2) cfg_prec
+      omega
+    simp only [h_nonzero, ↓reduceIte]
+    -- mantissa < 2^(cfg_prec + 1), so not ≥ 2^(cfg_prec + 1)
+    have h_not_big : ¬(mantissa ≥ 2^(cfg_prec + 1)) := Nat.not_le.mpr h_hi
+    simp only [h_not_big, ↓reduceIte]
+    -- mantissa ≥ 2^cfg_prec, so not < 2^cfg_prec
+    have h_not_small : ¬(mantissa < 2^cfg_prec) := Nat.not_lt.mpr h_lo
+    simp only [h_not_small, ↓reduceIte]
+
+/-- roundRatToNat on a natural number returns that number -/
+theorem roundRatToNat_of_nat (mode : RoundMode) (n : Nat) :
+    roundRatToNat mode (n : Rat) = n := by
+  unfold roundRatToNat
+  -- floor of a natural number is itself
+  have h_floor : (n : Rat).floor = n := by
+    simp only [Rat.floor_intCast, Int.cast_natCast]
+  simp only [h_floor, Int.toNat_natCast]
+  -- frac = n - n = 0
+  have h_frac : (n : Rat) - (n : Rat) = 0 := sub_self _
+  simp only [h_frac]
+  -- For all modes, when frac = 0, result is floor_q = n
+  cases mode <;> simp
 
 /-! ## Core Rounding Operation -/
 
@@ -478,7 +564,134 @@ theorem roundToFloat_idempotent (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
     --   log2Rat should give exp (since mantissa ∈ [2^prec, 2^(prec+1)))
     --   Scaling gives mantissa exactly (integer, no rounding needed)
     --   Normalization is idempotent, exponent is unchanged
-    sorry
+    -- Get normalized bounds from isNormalized
+    unfold FloatRepr.isNormalized at hx_norm
+    cases hx_norm with
+    | inl h_z => exact absurd h_z h_zero
+    | inr h_bounds =>
+      obtain ⟨h_lo, h_hi⟩ := h_bounds
+      -- x.toRat ≠ 0
+      have h_toRat_ne_zero : x.toRat cfg_prec ≠ 0 := by
+        unfold FloatRepr.toRat
+        intro h_eq
+        -- The base = mantissa * 2^(exp - prec) > 0 for mantissa > 0
+        have h_mant_pos : (x.mantissa : Rat) > 0 := by
+          have h1 : (0 : Nat) < x.mantissa := by
+            have h2 : 2^cfg_prec ≤ x.mantissa := h_lo
+            have h3 : 2^cfg_prec > 0 := Nat.pow_pos (by omega : 0 < 2) cfg_prec
+            omega
+          exact nat_cast_lt_rat 0 x.mantissa h1
+        have h_pow_pos : (2 : Rat) ^ (x.exponent - ↑cfg_prec) > 0 := by
+          apply zpow_pos; decide
+        have h_base_pos : (x.mantissa : Rat) * (2 : Rat) ^ (x.exponent - ↑cfg_prec) > 0 :=
+          mul_pos h_mant_pos h_pow_pos
+        cases hx_sign : x.sign <;> simp only [hx_sign, Bool.true_eq_false, ↓reduceIte,
+          Bool.false_eq_true] at h_eq
+        · -- sign = false: base > 0, but h_eq says base = 0
+          exact absurd h_eq (ne_of_gt h_base_pos)
+        · -- sign = true: -base ≠ 0
+          have h_neg_ne : -(x.mantissa : Rat) * (2 : Rat) ^ (x.exponent - ↑cfg_prec) ≠ 0 := by
+            rw [neg_mul]
+            exact neg_ne_zero.mpr (ne_of_gt h_base_pos)
+          exact absurd h_eq h_neg_ne
+      -- Unfold roundToFloat
+      unfold roundToFloat
+      simp only [h_toRat_ne_zero, ↓reduceIte]
+      -- Now we need to show the constructed FloatRepr equals x
+      -- Let's extract the key intermediate values
+      set q := x.toRat cfg_prec with hq_def
+      set sign_q := q < 0 with hsign_q_def
+      set abs_q := if sign_q then -q else q with habs_q_def
+      set e_approx := log2Rat abs_q with he_approx_def
+      set scale_exp := (cfg_prec : Int) - e_approx with hscale_exp_def
+      set mantissa_exact := abs_q * ((2 : Rat) ^ scale_exp) with hmant_exact_def
+      set mantissa_rounded := roundRatToNat mode mantissa_exact with hmant_rounded_def
+      set norm_result := normalizeMantissa cfg_prec mantissa_rounded e_approx
+                           (mantissa_rounded + cfg_prec) with hnorm_result_def
+      set clamped_exp := if norm_result.2 < cfg_emin then cfg_emin
+                         else if norm_result.2 > cfg_emax then cfg_emax
+                         else norm_result.2 with hclamped_exp_def
+      -- Goal: { sign := sign_q, mantissa := norm_result.1, exponent := clamped_exp } = x
+      -- Step 1: sign_q = x.sign
+      have h_sign_eq : sign_q = x.sign := by
+        unfold FloatRepr.toRat at hq_def
+        have h_base_pos : (x.mantissa : Rat) * (2 : Rat) ^ (x.exponent - ↑cfg_prec) > 0 := by
+          have h_mant_pos : (x.mantissa : Rat) > 0 := by
+            have h1 : (0 : Nat) < x.mantissa := by
+              have h2 : 2^cfg_prec ≤ x.mantissa := h_lo
+              have h3 : 2^cfg_prec > 0 := Nat.pow_pos (by omega : 0 < 2) cfg_prec
+              omega
+            exact nat_cast_lt_rat 0 x.mantissa h1
+          have h_pow_pos : (2 : Rat) ^ (x.exponent - ↑cfg_prec) > 0 := by
+            apply zpow_pos; decide
+          exact mul_pos h_mant_pos h_pow_pos
+        rw [hq_def]
+        unfold FloatRepr.toRat
+        cases hx_sign : x.sign <;>
+          simp only [hx_sign, hsign_q_def, Bool.true_eq_false, Bool.false_eq_true,
+            ↓reduceIte, not_lt, neg_mul]
+        · -- sign = false: q = base > 0, so ¬(q < 0)
+          exact le_of_lt h_base_pos
+        · -- sign = true: q = -base < 0
+          exact neg_neg_of_pos h_base_pos
+      -- Step 2: abs_q = x.mantissa * 2^(x.exponent - cfg_prec)
+      have h_abs_q : abs_q = (x.mantissa : Rat) * (2 : Rat) ^ (x.exponent - ↑cfg_prec) := by
+        unfold FloatRepr.toRat at hq_def
+        rw [habs_q_def, hq_def]
+        unfold FloatRepr.toRat
+        cases hx_sign : x.sign <;>
+          simp only [hx_sign, hsign_q_def, Bool.true_eq_false, Bool.false_eq_true,
+            ↓reduceIte, neg_mul, neg_neg]
+      -- Step 3: e_approx = x.exponent
+      -- This is the key step that requires log2Rat to give the correct answer
+      -- For a normalized mantissa m ∈ [2^prec, 2^(prec+1)), we have log2Nat(m) = prec
+      -- So log2Rat(m * 2^(e-prec)) = log2Nat(num) - log2Nat(den)
+      -- The exact value depends on whether e >= prec or not
+      have h_e_approx : e_approx = x.exponent := by
+        -- This requires proving log2Rat correctly computes floor(log2(abs_q))
+        -- and that for normalized floats, this equals the exponent.
+        -- The proof depends on the specific representation of Rat
+        sorry
+      -- Step 4: scale_exp = cfg_prec - x.exponent
+      have h_scale_exp : scale_exp = (cfg_prec : Int) - x.exponent := by
+        rw [hscale_exp_def, h_e_approx]
+      -- Step 5: mantissa_exact = x.mantissa
+      have h_mant_exact : mantissa_exact = (x.mantissa : Rat) := by
+        rw [hmant_exact_def, h_abs_q, h_scale_exp]
+        -- x.mantissa * 2^(x.exp - prec) * 2^(prec - x.exp) = x.mantissa
+        have h2_ne : (2 : Rat) ≠ 0 := by decide
+        rw [mul_comm (2 : Rat) ^ scale_exp _, ← mul_assoc]
+        rw [h_scale_exp, ← zpow_add₀ h2_ne]
+        simp only [sub_add_cancel, zpow_zero, mul_one]
+      -- Step 6: mantissa_rounded = x.mantissa
+      have h_mant_rounded : mantissa_rounded = x.mantissa := by
+        rw [hmant_rounded_def, h_mant_exact]
+        exact roundRatToNat_of_nat mode x.mantissa
+      -- Step 7: normalizeMantissa returns (x.mantissa, x.exponent)
+      have h_norm : norm_result = (x.mantissa, x.exponent) := by
+        rw [hnorm_result_def, h_mant_rounded, h_e_approx]
+        exact normalizeMantissa_already_normalized cfg_prec x.mantissa x.exponent
+          (x.mantissa + cfg_prec) h_lo h_hi
+      -- Step 8: clamped_exp = x.exponent (since exponent is in valid range)
+      have h_clamp : clamped_exp = x.exponent := by
+        rw [hclamped_exp_def, h_norm]
+        simp only
+        -- x.exponent is in [cfg_emin, cfg_emax]
+        have h_not_lo : ¬(x.exponent < cfg_emin) := not_lt.mpr hx_exp_lo
+        have h_not_hi : ¬(x.exponent > cfg_emax) := not_lt.mpr hx_exp_hi
+        simp only [h_not_lo, ↓reduceIte, h_not_hi]
+      -- Final: construct the equality
+      have h_eq_sign : sign_q = x.sign := h_sign_eq
+      have h_eq_mant : norm_result.1 = x.mantissa := by rw [h_norm]
+      have h_eq_exp : clamped_exp = x.exponent := h_clamp
+      -- Use ext-like reasoning for FloatRepr
+      cases x
+      simp only at h_eq_sign h_eq_mant h_eq_exp ⊢
+      constructor
+      · exact h_eq_sign
+      · constructor
+        · exact h_eq_mant
+        · exact h_eq_exp
 
 /-- Rounding a non-negative rational gives a non-negative float -/
 theorem roundToFloat_nonneg (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
