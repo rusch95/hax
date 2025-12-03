@@ -1926,6 +1926,50 @@ theorem fdiv_fmul_cancel (fmt : FloatFormat) (mode : RoundMode)
         rw [hmul]
         exact round_idempotent mode fx
 
+/-- Sterbenz Lemma: exact subtraction for nearby values.
+    When y/2 ≤ x ≤ 2y (with both positive and finite), subtraction is exact.
+
+    The key insight: when two positive floats are within a factor of 2,
+    their difference has magnitude at most equal to the larger one,
+    and the significant bits align so no rounding is needed. -/
+theorem sterbenz_exact (fmt : FloatFormat) (mode : RoundMode)
+    (x y : FloatValue fmt)
+    (hx : x.isFinite) (hy : y.isFinite)
+    (hy_pos : 0 < y.toRat)
+    (hlo : y.toRat / 2 ≤ x.toRat)
+    (hhi : x.toRat ≤ 2 * y.toRat) :
+    (fsub fmt mode x y).toRat = x.toRat - y.toRat := by
+  cases x with
+  | infinity _ => simp [FloatValue.isFinite] at hx
+  | nan => simp [FloatValue.isFinite] at hx
+  | finite fx =>
+    cases y with
+    | infinity _ => simp [FloatValue.isFinite] at hy
+    | nan => simp [FloatValue.isFinite] at hy
+    | finite fy =>
+      simp only [FloatValue.toRat] at hy_pos hlo hhi ⊢
+      -- fsub is fadd with negation: x - y = x + (-y)
+      simp only [fsub, fadd, fneg]
+      -- (-fy).toRat = -fy.toRat
+      have hneg_toRat : (FloatRepr.neg fy).toRat = -fy.toRat := by
+        simp only [FloatRepr.neg, FloatRepr.toRat]
+        cases fy.sign <;> simp [neg_mul, mul_comm]
+      simp only [hneg_toRat, add_neg_eq_sub]
+      -- Goal: (round (fx.toRat - fy.toRat)).toRat = fx.toRat - fy.toRat
+      -- This requires showing fx.toRat - fy.toRat is exactly representable.
+      --
+      -- The Sterbenz lemma proof outline:
+      -- 1. From hlo and hhi: fy.toRat/2 ≤ fx.toRat ≤ 2*fy.toRat
+      -- 2. Therefore: -fy.toRat/2 ≤ fx.toRat - fy.toRat ≤ fy.toRat
+      -- 3. The difference has magnitude ≤ max(|fx|, |fy|)
+      -- 4. The exponents of fx and fy differ by at most 1
+      -- 5. Therefore the subtraction is exact (no bits lost)
+      --
+      -- For the full proof, we need to show that the rational fx.toRat - fy.toRat
+      -- is exactly representable as a FloatRepr, which requires careful analysis
+      -- of the mantissa alignment and exponent range.
+      sorry
+
 -- THEOREM: Error bounds follow from the definition of rounding
 theorem round_relative_error (fmt : FloatFormat) (q : Rat) (hq : q ≠ 0) :
     ∃ δ : Rat, |δ| ≤ halfUlp fmt ∧
@@ -2157,7 +2201,15 @@ instance : FloatSpec (FloatValue binary64) where
     simp only [HDiv.hDiv, Div.div]
     exact fdiv_antimonotonic_den binary64 defaultMode x y z hx hy hz hxy
 
-  sterbenz := fun x y _ _ => ⟨x - y, rfl, fun _ hw => hw⟩
+  sterbenz := fun x y hx hy hy_pos hlo hhi => by
+    -- Need to convert from Float-level to Rat-level conditions
+    -- The key insight: dividing/multiplying by 2 is exact for floats
+    -- So y / 2 as Float has to_rat equal to (to_rat y) / 2
+    simp only [HSub.hSub, Sub.sub, HDiv.hDiv, Div.div, HMul.hMul, Mul.mul]
+    -- For now, we use the helper with the rational-level conditions
+    -- The full proof requires showing that Float operations by 2 are exact
+    -- and that the Float inequalities imply the rational inequalities
+    sorry
 
   neg_exact := neg_neg
   neg_mul := fun x y => by
@@ -2411,7 +2463,9 @@ instance : FloatSpec (FloatValue binary32) where
   div_antimonotonic_den := fun x y z hx hy hz hxy => by
     simp only [HDiv.hDiv, Div.div]
     exact fdiv_antimonotonic_den binary32 defaultMode x y z hx hy hz hxy
-  sterbenz := fun x y _ _ => ⟨x - y, rfl, fun _ hw => hw⟩
+  sterbenz := fun x y hx hy hy_pos hlo hhi => by
+    simp only [HSub.hSub, Sub.sub, HDiv.hDiv, Div.div, HMul.hMul, Mul.mul]
+    sorry
   neg_exact := neg_neg
   neg_mul := fun x y => by
     simp only [HMul.hMul, Mul.mul, Neg.neg]

@@ -202,10 +202,14 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α]
   div_antimonotonic_den : ∀ x y z : α,
     (0 : α) < x → (0 : α) < y → (0 : α) < z → x ≤ y → z / y ≤ z / x
 
-  /-- Sterbenz Lemma: exact subtraction for nearby values -/
+  /-- Sterbenz Lemma: exact subtraction for nearby values.
+      When y/2 ≤ x ≤ 2y (with y > 0 and both finite), subtraction is exact:
+      the floating-point result equals the mathematical result with no rounding. -/
   sterbenz : ∀ x y : α,
+    is_finite x → is_finite y →
+    (0 : α) < y →
     y / (2 : α) ≤ x → x ≤ (2 : α) * y →
-    ∃ z : α, x - y = z ∧ (∀ w : α, x - y = w → z = w)
+    to_rat (x - y) = to_rat x - to_rat y
 
   /-- Negation is exact (double negation) -/
   neg_exact : ∀ x : α, -(-x) = x
