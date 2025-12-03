@@ -929,11 +929,15 @@ instance : FloatSpec (FloatValue binary32) where
     | infinity s => simp [FloatValue.isFinite] at hfin
     | nan => simp [FloatValue.isFinite] at hfin
 
-  mul_zero_finite := fun x _ => by
-    simp only [HMul.hMul, Mul.mul, Zero.zero]
-    simp only [fmul, fzero, FloatRepr.toRat]
-    simp [round]
-    sorry
+  mul_zero_finite := fun x hfin => by
+    cases x with
+    | finite f =>
+      show fmul binary32 defaultMode (fzero binary32) (.finite f) = fzero binary32
+      simp only [fmul, fzero, FloatRepr.toRat, Bool.false_eq_true, ↓reduceIte,
+                 Nat.cast_zero, mul_zero, zero_mul]
+      exact round_zero binary32 defaultMode
+    | infinity s => simp [FloatValue.isFinite] at hfin
+    | nan => simp [FloatValue.isFinite] at hfin
 
   to_rat := FloatValue.toRat
   to_rat_nan := toRat_nan binary32
@@ -958,10 +962,14 @@ instance : FloatSpec (FloatValue binary32) where
     | nan => rfl
 
   mul_one_left := fun x => by
-    simp only [HMul.hMul, Mul.mul]
     cases x with
     | finite f => exact fmul_one_left binary32 defaultMode f
-    | infinity s => simp only [fmul]; sorry
+    | infinity s =>
+      -- Goal: 1 * infinity s = infinity s
+      show fmul binary32 defaultMode (fone binary32) (.infinity s) = .infinity s
+      simp only [fmul, fone, FloatValue.isNegative, Bool.false_xor]
+      have h : ¬(2 : Nat) ^ (binary32.prec - 1) = 0 := Nat.two_pow_pos (binary32.prec - 1) |>.ne'
+      simp only [h, ↓reduceIte]
     | nan => rfl
 
   add_monotonic_left := fun _ _ _ _ _ => by sorry
