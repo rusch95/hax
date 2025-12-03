@@ -288,19 +288,56 @@ theorem log2Rat_normalized (m : Nat) (e : Int) (prec : Nat)
       have h2 : 2^prec > 0 := Nat.pow_pos (by omega : 0 < 2) prec
       omega
     exact nat_cast_lt_rat 0 m h1
+  have h_m_nat_pos : (0 : Nat) < m := by
+    have h2 : 2^prec > 0 := Nat.pow_pos (by omega : 0 < 2) prec
+    omega
   have h_pow_pos : (0 : Rat) < (2 : Rat) ^ (e - (prec : Int)) := by
     apply zpow_pos; decide
   have h_q_pos : (0 : Rat) < (m : Rat) * (2 : Rat) ^ (e - (prec : Int)) :=
     mul_pos h_m_pos h_pow_pos
   have h_not_neg : ¬((m : Rat) * (2 : Rat) ^ (e - (prec : Int)) < 0) := not_lt.mpr (le_of_lt h_q_pos)
   simp only [h_not_neg, ↓reduceIte]
-  -- Now show the log2Nat calculation gives the right answer
-  -- This requires understanding how Rat represents m * 2^(e - prec)
-  -- For e ≥ prec: q is integer m * 2^(e-prec), num = m*2^(e-prec), den = 1
-  -- For e < prec: q = m / 2^(prec-e), representation depends on gcd
-  -- In both cases, log2Nat(num) - log2Nat(den) = log2Nat(m) + (e - prec) = prec + e - prec = e
-  -- This proof requires Rat representation lemmas
-  sorry
+  -- Split by whether e ≥ prec or e < prec
+  by_cases h_e_ge : e ≥ (prec : Int)
+  · -- Case: e ≥ prec, so k := e - prec ≥ 0
+    -- q = m * 2^k is an integer
+    set k := (e - (prec : Int)).toNat with hk_def
+    have hk_nonneg : e - (prec : Int) = (k : Int) := by
+      simp only [hk_def, Int.toNat_of_nonneg (Int.sub_nonneg.mpr h_e_ge)]
+    rw [hk_nonneg, zpow_natCast]
+    -- Now q = m * 2^k as a product of naturals
+    have h_eq : ((m : Rat) * (2 : Rat)^k) = ((m * 2^k : Nat) : Rat) := by
+      simp only [Nat.cast_mul, Nat.cast_pow, Nat.cast_ofNat]
+    rw [h_eq]
+    -- For a natural number, num = n, den = 1
+    simp only [Rat.num_natCast, Rat.den_natCast, Int.natAbs_ofNat]
+    -- log2Nat(m * 2^k) - log2Nat(1) = log2Nat(m * 2^k) - 0 = log2Nat(m * 2^k)
+    have h_log2_1 : log2Nat 1 = 0 := by unfold log2Nat; simp
+    rw [h_log2_1, sub_zero]
+    -- Use log2Nat_mul_pow2 and log2Nat_normalized
+    rw [log2Nat_mul_pow2 m k h_m_nat_pos]
+    rw [log2Nat_normalized m prec h_lo h_hi]
+    -- Now: prec + k = e
+    simp only [hk_def]
+    omega
+  · -- Case: e < prec, so k := e - prec < 0
+    -- q = m / 2^(prec - e) as a fraction
+    -- This case requires reasoning about the gcd reduction in Rat
+    -- The proof is more complex but follows the same pattern
+    push_neg at h_e_ge
+    -- Let j = prec - e (j > 0)
+    set j := ((prec : Int) - e).toNat with hj_def
+    have hj_pos : (prec : Int) - e = (j : Int) := by
+      simp only [hj_def, Int.toNat_of_nonneg (by omega : 0 ≤ (prec : Int) - e)]
+    have h_k_neg : e - (prec : Int) = -(j : Int) := by omega
+    rw [h_k_neg, zpow_neg, zpow_natCast]
+    -- q = m / 2^j
+    -- The key insight: log2Nat(num) - log2Nat(den) = log2Nat(m) - log2Nat(2^j) + adjustment
+    -- where the adjustment accounts for gcd cancellation
+    -- Since log2Nat(m) = prec and we're removing j powers of 2,
+    -- the net effect is prec - j = e
+    -- This requires a more detailed proof about Rat's internal representation
+    sorry
 
 /-- Round a non-negative rational to a natural number according to rounding mode -/
 def roundRatToNat (mode : RoundMode) (q : Rat) : Nat :=
