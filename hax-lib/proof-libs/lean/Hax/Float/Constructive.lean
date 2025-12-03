@@ -36,6 +36,8 @@ structure FloatFormat where
   prec_pos : prec ≥ 1
   /-- emin < emax -/
   emin_lt_emax : emin < emax
+  /-- 0 is a valid exponent (needed for 1.0 representation) -/
+  zero_exp_valid : emin ≤ 0 ∧ 0 ≤ emax := by constructor <;> omega
 
 /-- Binary64 (double precision) format -/
 def binary64 : FloatFormat where
@@ -127,12 +129,64 @@ theorem log2Nat_pow2 (k : Nat) : log2Nat (2^k) = k := by
 /-- log2Nat for values in [2^k, 2^(k+1)) -/
 theorem log2Nat_normalized (m k : Nat) (h_lo : 2^k ≤ m) (h_hi : m < 2^(k+1)) :
     log2Nat m = k := by
-  sorry -- Proof adapted from IEEE754.lean
+  induction k generalizing m with
+  | zero =>
+    -- m ∈ [1, 2), so m = 1
+    have hm1 : m = 1 := by omega
+    simp [hm1, log2Nat]
+  | succ n ih =>
+    -- m ∈ [2^(n+1), 2^(n+2)), so m ≥ 2
+    have hm_ge2 : m ≥ 2 := by
+      calc m ≥ 2^(n+1) := h_lo
+           _ ≥ 2^1 := Nat.pow_le_pow_right (by omega) (by omega)
+           _ = 2 := by norm_num
+    unfold log2Nat
+    simp only [show ¬(m ≤ 1) by omega, ↓reduceIte]
+    -- m/2 ∈ [2^n, 2^(n+1))
+    have h_lo' : 2^n ≤ m / 2 := by
+      have h1 : 2^(n+1) ≤ m := h_lo
+      have h2 : 2^(n+1) = 2^n * 2 := by rw [Nat.pow_succ]
+      omega
+    have h_hi' : m / 2 < 2^(n+1) := by
+      have h1 : m < 2^(n+2) := h_hi
+      have h2 : 2^(n+2) = 2^(n+1) * 2 := by rw [Nat.pow_succ]
+      omega
+    have := ih (m / 2) h_lo' h_hi'
+    omega
 
 /-- For n > 0, log2Nat gives the correct floor: 2^log2Nat(n) ≤ n < 2^(log2Nat(n)+1) -/
 theorem log2Nat_bounds (n : Nat) (hn : n > 0) :
     2^(log2Nat n) ≤ n ∧ n < 2^(log2Nat n + 1) := by
-  sorry -- Proof adapted from IEEE754.lean
+  induction n using Nat.strong_induction_on with
+  | _ n ih =>
+    by_cases h1 : n ≤ 1
+    · -- n = 1
+      have hn1 : n = 1 := by omega
+      simp [hn1, log2Nat]
+    · -- n > 1
+      push_neg at h1
+      unfold log2Nat
+      simp only [show ¬(n ≤ 1) by omega, ↓reduceIte]
+      have hn2_pos : n / 2 > 0 := by omega
+      have hn2_lt : n / 2 < n := Nat.div_lt_self (by omega) (by omega)
+      have ⟨lo, hi⟩ := ih (n / 2) hn2_lt hn2_pos
+      -- Key facts about n and n/2
+      have h_n_div : n / 2 * 2 ≤ n ∧ n < n / 2 * 2 + 2 := ⟨Nat.div_mul_le_self n 2, by omega⟩
+      constructor
+      · -- 2^(1 + log2Nat(n/2)) ≤ n
+        have h1 : 2 * 2^(log2Nat (n/2)) ≤ 2 * (n / 2) := Nat.mul_le_mul_left 2 lo
+        have h2 : n / 2 * 2 ≤ n := Nat.div_mul_le_self n 2
+        have h3 : 2^(1 + log2Nat (n/2)) = 2^1 * 2^(log2Nat (n/2)) := Nat.pow_add 2 1 _
+        simp only [Nat.pow_one] at h3
+        omega
+      · -- n < 2^(1 + log2Nat(n/2) + 1)
+        have h1 : n / 2 < 2^(log2Nat (n/2) + 1) := hi
+        have h2 : n < n / 2 * 2 + 2 := by omega
+        have heq : 1 + log2Nat (n/2) + 1 = 1 + (log2Nat (n/2) + 1) := by omega
+        rw [heq]
+        have h3 : 2^(1 + (log2Nat (n/2) + 1)) = 2^1 * 2^(log2Nat (n/2) + 1) := Nat.pow_add 2 1 _
+        simp only [Nat.pow_one] at h3
+        omega
 
 /-- Compute floor(log2(|q|)) for a non-zero rational q -/
 def log2Rat (q : Rat) : Int :=
@@ -227,10 +281,11 @@ def roundToFloatRepr (fmt : FloatFormat) (mode : RoundMode) (q : Rat) : FloatRep
 
     -- Use modular arithmetic to ensure mantissa is in bounds
     -- Exponent bounds follow from clamping logic (proved by case analysis on if-then-else)
+    have h_emin_lt_emax := fmt.emin_lt_emax
     ⟨sign, mantissa_norm % 2^fmt.prec, clamped_exp,
       Nat.mod_lt _ (Nat.two_pow_pos fmt.prec),
-      ⟨by simp only [clamped_exp]; split_ifs <;> (try exact le_refl _) <;> sorry,
-       by simp only [clamped_exp]; split_ifs <;> (try exact le_refl _) <;> sorry⟩⟩
+      ⟨by simp only [clamped_exp]; split_ifs <;> omega,
+       by simp only [clamped_exp]; split_ifs <;> omega⟩⟩
 
 /-- Round a rational to the nearest representable value.
     This is the core definition from which error bounds are derived. -/
@@ -313,7 +368,7 @@ def fone (fmt : FloatFormat) : FloatValue fmt :=
   .finite ⟨false, 2^(fmt.prec - 1), 0,
     by have h : fmt.prec - 1 < fmt.prec := Nat.sub_lt fmt.prec_pos (by omega)
        exact Nat.pow_lt_pow_right (by omega : 1 < 2) h,
-    ⟨by sorry, by sorry⟩⟩  -- Requires emin ≤ 0 ≤ emax
+    fmt.zero_exp_valid⟩
 
 /-- Positive infinity -/
 def finfinity (fmt : FloatFormat) : FloatValue fmt := .infinity false
@@ -517,12 +572,12 @@ theorem fadd_zero_left (fmt : FloatFormat) (mode : RoundMode) (f : FloatRepr fmt
 
 /-- Helper: fone.toRat = 1 -/
 theorem fone_toRat (fmt : FloatFormat) : (fone fmt).toRat = 1 := by
-  -- mantissa = 2^(prec - 1), exponent = 0
-  -- toRat = mantissa * 2^(exponent - (prec - 1))
-  --       = 2^(prec - 1) * 2^(0 - (prec - 1))
+  -- fone = .finite ⟨false, 2^(prec - 1), 0, ...⟩
+  -- toRat = sign_factor * mantissa * 2^(exponent - (prec - 1))
+  --       = 1 * 2^(prec - 1) * 2^(0 - (prec - 1))
   --       = 2^(prec - 1) * 2^(-(prec - 1))
   --       = 1
-  sorry
+  sorry -- TODO: prove rational arithmetic identity
 
 /-- Multiplying by one on the right is identity for finite values -/
 theorem fmul_one_right (fmt : FloatFormat) (mode : RoundMode) (f : FloatRepr fmt) :
