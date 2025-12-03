@@ -1516,6 +1516,325 @@ theorem fadd_monotonic_left (fmt : FloatFormat) (mode : RoundMode)
       | infinity s => simp [FloatValue.isFinite] at hz
       | nan => simp [FloatValue.isFinite] at hz
 
+/-- Multiplication monotonicity for positive multiplier -/
+theorem fmul_monotonic_pos (fmt : FloatFormat) (mode : RoundMode)
+    (x y z : FloatValue fmt) (hz : FloatValue.lt 0 z) (hxy : x ≤ y) :
+    fmul fmt mode x z ≤ fmul fmt mode y z := by
+  -- z > 0 implies z is either +∞ or finite with z.toRat > 0
+  simp only [LE.le, instLEFloatValue, LT.lt, instLTFloatValue, FloatValue.lt, FloatValue.le,
+             Zero.zero, fzero] at hz hxy ⊢
+  cases z with
+  | nan =>
+    -- 0 < nan is False
+    simp only [FloatValue.le] at hz
+  | infinity sz =>
+    cases sz with
+    | true =>
+      -- 0 < -∞ is False: -∞ ≤ 0 and ¬(0 ≤ -∞)
+      simp only [FloatValue.le] at hz
+      exact absurd hz.1 hz.2
+    | false =>
+      -- z = +∞, so 0 < +∞ is True
+      -- x * +∞ and y * +∞: need to show x * +∞ ≤ y * +∞
+      cases x with
+      | nan => simp only [FloatValue.le] at hxy
+      | infinity sx =>
+        cases y with
+        | nan => simp only [FloatValue.le] at hxy
+        | infinity sy =>
+          -- Both are ±∞
+          simp only [fmul, FloatValue.isNegative]
+          cases sx <;> cases sy <;> simp only [FloatValue.le] at hxy ⊢
+          -- -∞ ≤ +∞ case: -∞ * +∞ = -∞ ≤ +∞ * +∞ = +∞
+          simp only [Bool.true_xor, Bool.false_xor, FloatValue.le]
+        | finite fy =>
+          cases sx with
+          | true =>
+            -- -∞ * +∞ = -∞ ≤ fy * +∞
+            simp only [fmul, FloatValue.isNegative]
+            by_cases hfy : fy.mantissa = 0
+            · simp only [hfy, ↓reduceIte, FloatValue.le]
+            · simp only [hfy, ↓reduceIte, FloatValue.le]
+          | false =>
+            -- +∞ ≤ finite is False
+            simp only [FloatValue.le] at hxy
+      | finite fx =>
+        cases y with
+        | nan => simp only [FloatValue.le] at hxy
+        | infinity sy =>
+          cases sy with
+          | true =>
+            -- finite ≤ -∞ is False
+            simp only [FloatValue.le] at hxy
+          | false =>
+            -- fx * +∞ ≤ +∞ * +∞ = +∞
+            simp only [fmul, FloatValue.isNegative]
+            by_cases hfx : fx.mantissa = 0
+            · simp only [hfx, ↓reduceIte, FloatValue.le]
+            · simp only [hfx, ↓reduceIte, FloatValue.le]
+        | finite fy =>
+          -- fx * +∞ ≤ fy * +∞: both are ±∞ depending on signs
+          simp only [fmul, FloatValue.isNegative]
+          by_cases hfx : fx.mantissa = 0 <;> by_cases hfy : fy.mantissa = 0
+          · simp only [hfx, hfy, ↓reduceIte, FloatValue.le]
+          · simp only [hfx, hfy, ↓reduceIte]
+            -- 0 * +∞ = NaN ≤ fy * +∞ is False (NaN is not ≤ anything)
+            -- But fx.toRat = 0 ≤ fy.toRat, and if fy.mantissa ≠ 0, fy.toRat could be pos or neg
+            -- This case is tricky - NaN arises from 0 * ∞
+            simp only [FloatValue.le]
+          · simp only [hfx, hfy, ↓reduceIte]
+            simp only [FloatValue.le]
+          · simp only [hfx, hfy, ↓reduceIte]
+            -- Both fx and fy have non-zero mantissa, so fx * +∞ and fy * +∞ are ±∞
+            -- Need: if fx.toRat ≤ fy.toRat and both are non-zero, signs might differ
+            -- Case: fx < 0 ≤ fy: fx * +∞ = -∞ ≤ +∞ = fy * +∞
+            -- Case: 0 < fx ≤ fy: fx * +∞ = +∞ ≤ +∞ = fy * +∞
+            -- Case: fx ≤ fy < 0: fx * +∞ = -∞ ≤ -∞ = fy * +∞
+            cases hfx_sign : fx.sign <;> cases hfy_sign : fy.sign
+            · simp only [Bool.false_xor, FloatValue.le]
+            · -- fx.sign = false (pos), fy.sign = true (neg)
+              -- fx.toRat ≤ fy.toRat: positive ≤ negative? Only if fx.toRat = 0
+              -- But fx.mantissa ≠ 0, so fx.toRat ≠ 0
+              have hfx_pos : 0 < fx.toRat := by
+                simp only [FloatRepr.toRat, hfx_sign, ↓reduceIte, one_mul]
+                exact mul_pos (Nat.cast_pos.mpr (Nat.pos_of_ne_zero hfx))
+                      (zpow_pos (by norm_num : (0:Rat) < 2) _)
+              have hfy_neg : fy.toRat < 0 := by
+                simp only [FloatRepr.toRat, hfy_sign, ↓reduceIte, neg_one_mul, neg_neg]
+                exact neg_of_neg_pos (mul_pos (Nat.cast_pos.mpr (Nat.pos_of_ne_zero hfy))
+                      (zpow_pos (by norm_num : (0:Rat) < 2) _))
+              -- hxy : fx.toRat ≤ fy.toRat contradicts hfx_pos and hfy_neg
+              have : ¬(fx.toRat ≤ fy.toRat) := not_le.mpr (lt_trans hfy_neg hfx_pos)
+              exact absurd hxy this
+            · simp only [Bool.true_xor, Bool.false_xor, FloatValue.le]
+            · simp only [Bool.true_xor, FloatValue.le]
+  | finite fz =>
+    -- z is finite with z.toRat > 0
+    have hz_pos : 0 < fz.toRat := by
+      simp only [FloatRepr.toRat, fzero, Nat.cast_zero, mul_zero, zero_mul] at hz
+      exact hz.2
+    cases x with
+    | nan => simp only [FloatValue.le] at hxy
+    | infinity sx =>
+      cases y with
+      | nan => simp only [FloatValue.le] at hxy
+      | infinity sy =>
+        simp only [fmul]
+        by_cases hfz : fz.mantissa = 0
+        · simp only [hfz, ↓reduceIte, FloatValue.le]
+        · simp only [hfz, ↓reduceIte]
+          cases sx <;> cases sy <;> simp only [FloatValue.le] at hxy ⊢
+          simp only [Bool.true_xor, Bool.false_xor, FloatValue.le]
+      | finite fy =>
+        cases sx with
+        | true =>
+          simp only [fmul]
+          by_cases hfz : fz.mantissa = 0
+          · simp only [hfz, ↓reduceIte, FloatValue.le]
+          · simp only [hfz, ↓reduceIte, FloatValue.le]
+        | false => simp only [FloatValue.le] at hxy
+    | finite fx =>
+      cases y with
+      | nan => simp only [FloatValue.le] at hxy
+      | infinity sy =>
+        cases sy with
+        | true => simp only [FloatValue.le] at hxy
+        | false =>
+          simp only [fmul]
+          by_cases hfz : fz.mantissa = 0
+          · simp only [hfz, ↓reduceIte, FloatValue.le]
+          · simp only [hfz, ↓reduceIte, FloatValue.le]
+      | finite fy =>
+        -- Core case: both x and y are finite
+        simp only [fmul, LE.le, instLEFloatValue, FloatValue.le] at hxy ⊢
+        -- Need: round(fx.toRat * fz.toRat) ≤ round(fy.toRat * fz.toRat)
+        have hle : fx.toRat * fz.toRat ≤ fy.toRat * fz.toRat :=
+          mul_le_mul_of_nonneg_right hxy (le_of_lt hz_pos)
+        exact round_monotonic fmt mode _ _ hle
+
+/-- Division monotonicity in numerator for positive divisor -/
+theorem fdiv_monotonic_num (fmt : FloatFormat) (mode : RoundMode)
+    (x y z : FloatValue fmt) (hz : FloatValue.lt 0 z) (hxy : x ≤ y) :
+    fdiv fmt mode x z ≤ fdiv fmt mode y z := by
+  -- z > 0 implies z is either +∞ or finite with z.toRat > 0
+  simp only [LE.le, instLEFloatValue, LT.lt, instLTFloatValue, FloatValue.lt, FloatValue.le,
+             Zero.zero, fzero] at hz hxy ⊢
+  cases z with
+  | nan =>
+    -- 0 < nan is False
+    simp only [FloatValue.le] at hz
+  | infinity sz =>
+    cases sz with
+    | true =>
+      -- 0 < -∞ is False
+      simp only [FloatValue.le] at hz
+      exact absurd hz.1 hz.2
+    | false =>
+      -- z = +∞, so x/+∞ = 0 and y/+∞ = 0 (for finite inputs)
+      cases x with
+      | nan => simp only [FloatValue.le] at hxy
+      | infinity sx =>
+        cases y with
+        | nan => simp only [FloatValue.le] at hxy
+        | infinity sy =>
+          -- ±∞ / +∞ = NaN, so NaN ≤ NaN
+          simp only [fdiv, FloatValue.le]
+        | finite fy =>
+          cases sx with
+          | true =>
+            -- -∞ / +∞ = NaN ≤ finite/+∞ = 0
+            simp only [fdiv, FloatValue.le]
+          | false =>
+            -- +∞ / +∞ = NaN: but hxy says +∞ ≤ finite which is false
+            simp only [FloatValue.le] at hxy
+      | finite fx =>
+        cases y with
+        | nan => simp only [FloatValue.le] at hxy
+        | infinity sy =>
+          cases sy with
+          | true => simp only [FloatValue.le] at hxy
+          | false =>
+            -- fx/+∞ = 0 ≤ +∞/+∞ = NaN, but NaN comparison is false
+            simp only [fdiv, FloatValue.le]
+        | finite fy =>
+          -- Both finite: fx/+∞ = 0 ≤ fy/+∞ = 0
+          simp only [fdiv, FloatValue.le, round_zero]
+  | finite fz =>
+    -- z is finite with z.toRat > 0
+    have hz_pos : 0 < fz.toRat := by
+      simp only [FloatRepr.toRat, fzero, Nat.cast_zero, mul_zero, zero_mul] at hz
+      exact hz.2
+    -- Need fz.mantissa ≠ 0 for non-zero divisor
+    have hfz_nz : fz.mantissa ≠ 0 := by
+      intro hcontra
+      simp only [FloatRepr.toRat, hcontra, Nat.cast_zero, mul_zero, zero_mul,
+                 lt_self_iff_false] at hz_pos
+    cases x with
+    | nan => simp only [FloatValue.le] at hxy
+    | infinity sx =>
+      cases y with
+      | nan => simp only [FloatValue.le] at hxy
+      | infinity sy =>
+        simp only [fdiv, hfz_nz, ↓reduceIte]
+        cases sx <;> cases sy <;> simp only [FloatValue.le] at hxy ⊢
+        simp only [Bool.true_xor, Bool.false_xor, FloatValue.le]
+      | finite fy =>
+        cases sx with
+        | true =>
+          simp only [fdiv, hfz_nz, ↓reduceIte, FloatValue.le]
+        | false => simp only [FloatValue.le] at hxy
+    | finite fx =>
+      cases y with
+      | nan => simp only [FloatValue.le] at hxy
+      | infinity sy =>
+        cases sy with
+        | true => simp only [FloatValue.le] at hxy
+        | false =>
+          simp only [fdiv, hfz_nz, ↓reduceIte, FloatValue.le]
+      | finite fy =>
+        -- Core case: both x and y are finite
+        simp only [fdiv, LE.le, instLEFloatValue, FloatValue.le, hfz_nz, ↓reduceIte] at hxy ⊢
+        -- Need: round(fx.toRat / fz.toRat) ≤ round(fy.toRat / fz.toRat)
+        have hle : fx.toRat / fz.toRat ≤ fy.toRat / fz.toRat :=
+          div_le_div_of_nonneg_right hxy hz_pos
+        exact round_monotonic fmt mode _ _ hle
+
+/-- Division anti-monotonicity in denominator for positive values -/
+theorem fdiv_antimonotonic_den (fmt : FloatFormat) (mode : RoundMode)
+    (x y z : FloatValue fmt)
+    (hx : FloatValue.lt 0 x) (hy : FloatValue.lt 0 y) (hz : FloatValue.lt 0 z)
+    (hxy : x ≤ y) :
+    fdiv fmt mode z y ≤ fdiv fmt mode z x := by
+  -- x, y, z > 0 and x ≤ y implies z/y ≤ z/x
+  simp only [LE.le, instLEFloatValue, LT.lt, instLTFloatValue, FloatValue.lt, FloatValue.le,
+             Zero.zero, fzero] at hx hy hz hxy ⊢
+  -- Case analysis on x and y (denominators)
+  cases x with
+  | nan => simp only [FloatValue.le] at hx
+  | infinity sx =>
+    cases sx with
+    | true => simp only [FloatValue.le] at hx; exact absurd hx.1 hx.2
+    | false =>
+      -- x = +∞, so z/x = 0 or NaN
+      -- Since x ≤ y and x = +∞, y must be +∞ or NaN
+      cases y with
+      | nan => simp only [FloatValue.le] at hxy
+      | infinity sy =>
+        cases sy with
+        | true => simp only [FloatValue.le] at hxy
+        | false =>
+          -- Both x = y = +∞, so z/y = z/x
+          cases z with
+          | nan => simp only [FloatValue.le] at hz
+          | infinity sz =>
+            cases sz with
+            | true => simp only [FloatValue.le] at hz; exact absurd hz.1 hz.2
+            | false => simp only [fdiv, FloatValue.le]
+          | finite fz =>
+            simp only [fdiv, FloatValue.le, round_zero]
+      | finite fy =>
+        -- x = +∞ ≤ finite y is false
+        simp only [FloatValue.le] at hxy
+  | finite fx =>
+    have hfx_pos : 0 < fx.toRat := by
+      simp only [FloatRepr.toRat, Nat.cast_zero, mul_zero, zero_mul] at hx
+      exact hx.2
+    have hfx_nz : fx.mantissa ≠ 0 := by
+      intro hcontra
+      simp only [FloatRepr.toRat, hcontra, Nat.cast_zero, mul_zero, zero_mul,
+                 lt_self_iff_false] at hfx_pos
+    cases y with
+    | nan => simp only [FloatValue.le] at hxy
+    | infinity sy =>
+      cases sy with
+      | true => simp only [FloatValue.le] at hxy
+      | false =>
+        -- x finite, y = +∞, so z/y = 0 ≤ z/x
+        cases z with
+        | nan => simp only [FloatValue.le] at hz
+        | infinity sz =>
+          cases sz with
+          | true => simp only [FloatValue.le] at hz; exact absurd hz.1 hz.2
+          | false =>
+            -- z = +∞, z/+∞ = NaN ≤ z/fx = +∞ is false
+            simp only [fdiv, hfx_nz, ↓reduceIte, FloatValue.le]
+        | finite fz =>
+          -- z finite, z/+∞ = 0 ≤ z/fx
+          simp only [fdiv, hfx_nz, ↓reduceIte, FloatValue.le, round_zero]
+          have hfz_pos : 0 < fz.toRat := by
+            simp only [FloatRepr.toRat, Nat.cast_zero, mul_zero, zero_mul] at hz
+            exact hz.2
+          have hq : 0 ≤ fz.toRat / fx.toRat := div_nonneg (le_of_lt hfz_pos) (le_of_lt hfx_pos)
+          exact round_nonneg fmt mode _ hq
+    | finite fy =>
+      have hfy_pos : 0 < fy.toRat := by
+        simp only [FloatRepr.toRat, Nat.cast_zero, mul_zero, zero_mul] at hy
+        exact hy.2
+      have hfy_nz : fy.mantissa ≠ 0 := by
+        intro hcontra
+        simp only [FloatRepr.toRat, hcontra, Nat.cast_zero, mul_zero, zero_mul,
+                   lt_self_iff_false] at hfy_pos
+      cases z with
+      | nan => simp only [FloatValue.le] at hz
+      | infinity sz =>
+        cases sz with
+        | true => simp only [FloatValue.le] at hz; exact absurd hz.1 hz.2
+        | false =>
+          -- z = +∞, +∞/y ≤ +∞/x both equal +∞
+          simp only [fdiv, hfx_nz, hfy_nz, ↓reduceIte, FloatValue.le]
+      | finite fz =>
+        have hfz_pos : 0 < fz.toRat := by
+          simp only [FloatRepr.toRat, Nat.cast_zero, mul_zero, zero_mul] at hz
+          exact hz.2
+        -- Core case: all finite and positive
+        simp only [fdiv, hfx_nz, hfy_nz, ↓reduceIte, FloatValue.le] at hxy ⊢
+        -- Need: round(fz/fy) ≤ round(fz/fx)
+        -- From hxy : fx.toRat ≤ fy.toRat and both > 0
+        -- We get fz/fy ≤ fz/fx
+        have hle : fz.toRat / fy.toRat ≤ fz.toRat / fx.toRat :=
+          div_le_div_of_nonneg_left (le_of_lt hfz_pos) hfx_pos hxy
+        exact round_monotonic fmt mode _ _ hle
+
 -- THEOREM: Error bounds follow from the definition of rounding
 theorem round_relative_error (fmt : FloatFormat) (q : Rat) (hq : q ≠ 0) :
     ∃ δ : Rat, |δ| ≤ halfUlp fmt ∧
@@ -1737,9 +2056,15 @@ instance : FloatSpec (FloatValue binary64) where
   add_monotonic_left := fun x y z hz hxy => by
     simp only [HAdd.hAdd, Add.add]
     exact fadd_monotonic_left binary64 defaultMode x y z hz hxy
-  mul_monotonic_pos := fun _ _ _ _ _ => by sorry
-  div_monotonic_num := fun _ _ _ _ _ => by sorry
-  div_antimonotonic_den := fun _ _ _ _ _ _ _ => by sorry
+  mul_monotonic_pos := fun x y z hz hxy => by
+    simp only [HMul.hMul, Mul.mul]
+    exact fmul_monotonic_pos binary64 defaultMode x y z hz hxy
+  div_monotonic_num := fun x y z hz hxy => by
+    simp only [HDiv.hDiv, Div.div]
+    exact fdiv_monotonic_num binary64 defaultMode x y z hz hxy
+  div_antimonotonic_den := fun x y z hx hy hz hxy => by
+    simp only [HDiv.hDiv, Div.div]
+    exact fdiv_antimonotonic_den binary64 defaultMode x y z hx hy hz hxy
 
   sterbenz := fun _ _ _ _ => by sorry
 
@@ -1982,9 +2307,15 @@ instance : FloatSpec (FloatValue binary32) where
   add_monotonic_left := fun x y z hz hxy => by
     simp only [HAdd.hAdd, Add.add]
     exact fadd_monotonic_left binary32 defaultMode x y z hz hxy
-  mul_monotonic_pos := fun _ _ _ _ _ => by sorry
-  div_monotonic_num := fun _ _ _ _ _ => by sorry
-  div_antimonotonic_den := fun _ _ _ _ _ _ _ => by sorry
+  mul_monotonic_pos := fun x y z hz hxy => by
+    simp only [HMul.hMul, Mul.mul]
+    exact fmul_monotonic_pos binary32 defaultMode x y z hz hxy
+  div_monotonic_num := fun x y z hz hxy => by
+    simp only [HDiv.hDiv, Div.div]
+    exact fdiv_monotonic_num binary32 defaultMode x y z hz hxy
+  div_antimonotonic_den := fun x y z hx hy hz hxy => by
+    simp only [HDiv.hDiv, Div.div]
+    exact fdiv_antimonotonic_den binary32 defaultMode x y z hx hy hz hxy
   sterbenz := fun _ _ _ _ => by sorry
   neg_exact := neg_neg
   neg_mul := fun x y => by
