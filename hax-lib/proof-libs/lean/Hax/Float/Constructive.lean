@@ -1130,6 +1130,12 @@ open Float.Spec in
 instance : FloatSpec (FloatValue binary64) where
   epsilon := epsilon binary64
 
+  equiv := FloatValue.equiv
+  equiv_refl := FloatValue.equiv_refl
+  equiv_symm := fun _ _ => FloatValue.equiv_symm
+  equiv_trans := fun _ _ _ => FloatValue.equiv_trans
+  eq_implies_equiv := fun x _ h => by rw [h]; exact FloatValue.equiv_refl x
+
   nan := fnan binary64
   infinity := finfinity binary64
 
@@ -1185,6 +1191,8 @@ instance : FloatSpec (FloatValue binary64) where
     -- Also fails for non-canonical representations (same toRat, different mantissa/exp)
     -- Would need: 1) semantic equality, or 2) normalization invariant in FloatRepr
     sorry
+
+  to_rat_inj_equiv := to_rat_inj_equiv
 
   to_rat_neg := fneg_toRat
 
@@ -1245,6 +1253,7 @@ instance : FloatSpec (FloatValue binary64) where
 
   le_trans := le_trans
   le_antisymm := fun _ _ _ _ => by sorry  -- See note on le_antisymm_finite
+  le_antisymm_equiv := le_antisymm_equiv
   le_total := fun x y hx hy => by
     cases x with
     | finite fx =>
@@ -1293,6 +1302,12 @@ open Float.Spec in
 /-- FloatSpec instance for binary32 (single precision) -/
 instance : FloatSpec (FloatValue binary32) where
   epsilon := epsilon binary32
+
+  equiv := FloatValue.equiv
+  equiv_refl := FloatValue.equiv_refl
+  equiv_symm := fun _ _ => FloatValue.equiv_symm
+  equiv_trans := fun _ _ _ => FloatValue.equiv_trans
+  eq_implies_equiv := fun x _ h => by rw [h]; exact FloatValue.equiv_refl x
 
   nan := fnan binary32
   infinity := finfinity binary32
@@ -1344,6 +1359,7 @@ instance : FloatSpec (FloatValue binary32) where
   to_rat_inj := fun x y hx hy heq => by
     -- Same issue as binary64: signed zeros and non-canonical representations
     sorry
+  to_rat_inj_equiv := to_rat_inj_equiv
   to_rat_neg := fneg_toRat
 
   add_comm := fun x y => by
@@ -1394,6 +1410,7 @@ instance : FloatSpec (FloatValue binary32) where
     | nan => simp [FloatValue.isFinite] at hfin
   le_trans := le_trans
   le_antisymm := fun _ _ _ _ => by sorry  -- See note on le_antisymm_finite
+  le_antisymm_equiv := le_antisymm_equiv
   le_total := fun x y hx hy => by
     cases x with
     | finite fx =>

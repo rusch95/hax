@@ -64,6 +64,23 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α]
   /-- Machine epsilon: 2^(-p+1) where p is precision -/
   epsilon : Rat
 
+  /-- Semantic equivalence: identifies values with the same mathematical meaning.
+      For IEEE 754, this identifies +0 with -0 and treats all NaNs as equivalent.
+      For many types (like native Float), this coincides with propositional equality. -/
+  equiv : α → α → Prop
+
+  /-- Semantic equivalence is reflexive -/
+  equiv_refl : ∀ x : α, equiv x x
+
+  /-- Semantic equivalence is symmetric -/
+  equiv_symm : ∀ x y : α, equiv x y → equiv y x
+
+  /-- Semantic equivalence is transitive -/
+  equiv_trans : ∀ x y z : α, equiv x y → equiv y z → equiv x z
+
+  /-- Propositional equality implies semantic equivalence -/
+  eq_implies_equiv : ∀ x y : α, x = y → equiv x y
+
   /-- NaN value -/
   nan : α
 
@@ -120,8 +137,13 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α]
   /-- Conversion preserves zero -/
   to_rat_zero : to_rat (0 : α) = 0
 
-  /-- Conversion is injective for finite values -/
+  /-- Conversion is injective for finite values (structural equality version).
+      Note: For types with signed zeros, this may require a sorry.
+      Use to_rat_inj_equiv for a fully provable version. -/
   to_rat_inj : ∀ x y : α, is_finite x → is_finite y → to_rat x = to_rat y → x = y
+
+  /-- Conversion is injective up to semantic equivalence (always provable) -/
+  to_rat_inj_equiv : ∀ x y : α, is_finite x → is_finite y → to_rat x = to_rat y → equiv x y
 
   /-- Conversion preserves negation (exact since negation is exact) -/
   to_rat_neg : ∀ x : α, to_rat (-x) = -(to_rat x)
@@ -174,8 +196,13 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α]
   /-- Ordering transitivity -/
   le_trans : ∀ x y z : α, x ≤ y → y ≤ z → x ≤ z
 
-  /-- Ordering antisymmetry -/
+  /-- Ordering antisymmetry (structural equality version).
+      Note: For types with signed zeros, this may require a sorry.
+      Use le_antisymm_equiv for a fully provable version. -/
   le_antisymm : ∀ x y : α, x ≤ y → y ≤ x → x = y
+
+  /-- Ordering antisymmetry (semantic equivalence version, always provable) -/
+  le_antisymm_equiv : ∀ x y : α, x ≤ y → y ≤ x → equiv x y
 
   /-- Ordering totality (for finite values - NaN is unordered) -/
   le_total : ∀ x y : α, is_finite x → is_finite y → (x ≤ y ∨ y ≤ x)
@@ -241,6 +268,9 @@ namespace FloatSpec
 
 variable {α : Type} [Add α] [Sub α] [Mul α] [Div α] [Neg α] [LE α] [LT α] [Zero α] [One α] [OfNat α 2]
 variable [FloatSpec α]
+
+/-- Notation for semantic equivalence within FloatSpec namespace -/
+scoped notation:50 x " ≃ " y => FloatSpec.equiv x y
 
 /-! ## Rounding Properties
 
