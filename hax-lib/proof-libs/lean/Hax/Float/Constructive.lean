@@ -603,8 +603,9 @@ theorem le_refl_finite {fmt : FloatFormat} (f : FloatRepr fmt) :
 /-- Transitivity of le -/
 theorem le_trans {fmt : FloatFormat} (x y z : FloatValue fmt)
     (hxy : x ≤ y) (hyz : y ≤ z) : x ≤ z := by
-  -- This follows from the definition: NaN cases are vacuously true,
-  -- infinity cases are straightforward, and finite cases use Rat.le_trans
+  -- TODO: Full case analysis on x, y, z
+  -- NaN cases are vacuously true, infinity cases are straightforward,
+  -- and finite cases use Rat.le_trans
   sorry
 
 /-- Characterization of strict less than -/
