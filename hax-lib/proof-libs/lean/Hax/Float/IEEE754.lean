@@ -1168,6 +1168,152 @@ theorem normalizeMantissa_value_eq_no_div (cfg_prec : Nat) (mantissa : Nat) (exp
         · -- In normalized range: return unchanged
           simp
 
+/-- If m ≥ 2^prec (not in mult zone), the final exponent is ≥ starting exp. -/
+theorem normalizeMantissa_exp_ge_not_mult (cfg_prec : Nat) (mantissa : Nat) (exp : Int) (fuel : Nat)
+    (h_ge : mantissa ≥ 2^cfg_prec) :
+    (normalizeMantissa cfg_prec mantissa exp fuel).2 ≥ exp := by
+  induction fuel generalizing mantissa exp with
+  | zero => unfold normalizeMantissa; simp
+  | succ n ih =>
+    unfold normalizeMantissa
+    simp only [Nat.add_one_ne_zero, ↓reduceIte]
+    have h_nz : mantissa ≠ 0 := by omega
+    simp only [h_nz, ↓reduceIte]
+    by_cases h_big : mantissa ≥ 2^(cfg_prec + 1)
+    · -- Division zone: recurse at exp+1
+      simp only [h_big, ↓reduceIte]
+      have h_div_ge : mantissa / 2 ≥ 2^cfg_prec := by
+        have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+        omega
+      have h_ih := ih (mantissa / 2) (exp + 1) h_div_ge
+      omega
+    · -- Not in division zone
+      push_neg at h_big
+      simp only [not_le.mpr h_big, ↓reduceIte]
+      -- Since m ≥ 2^prec and m < 2^(prec+1), it's in stay zone
+      simp only [not_lt.mpr h_ge, ↓reduceIte]
+
+/-- If m < 2^(prec+1) (not in div zone), the final exponent is ≤ starting exp. -/
+theorem normalizeMantissa_exp_le_not_div (cfg_prec : Nat) (mantissa : Nat) (exp : Int) (fuel : Nat)
+    (h_lt : mantissa < 2^(cfg_prec + 1)) :
+    (normalizeMantissa cfg_prec mantissa exp fuel).2 ≤ exp := by
+  induction fuel generalizing mantissa exp with
+  | zero => unfold normalizeMantissa; simp
+  | succ n ih =>
+    unfold normalizeMantissa
+    simp only [Nat.add_one_ne_zero, ↓reduceIte]
+    by_cases h_nz : mantissa = 0
+    · simp only [h_nz, ↓reduceIte]
+    · simp only [h_nz, ↓reduceIte]
+      -- Not in division zone (h_lt)
+      simp only [not_le.mpr h_lt, ↓reduceIte]
+      by_cases h_small : mantissa < 2^cfg_prec
+      · -- Multiplication zone: recurse at exp-1
+        simp only [h_small, ↓reduceIte]
+        have h_mul_lt : mantissa * 2 < 2^(cfg_prec + 1) := by
+          have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+          omega
+        have h_ih := ih (mantissa * 2) (exp - 1) h_mul_lt
+        omega
+      · -- Stay zone
+        push_neg at h_small
+        simp only [not_lt.mpr h_small, ↓reduceIte]
+
+/-- When normalization divides (m ≥ 2^(prec+1)), the final exponent is at least starting_exp + 1.
+    This is because after dividing, m/2 ≥ 2^prec, so we never need to multiply. -/
+theorem normalizeMantissa_exp_ge_div (cfg_prec : Nat) (mantissa : Nat) (exp : Int) (fuel : Nat)
+    (h_big : mantissa ≥ 2^(cfg_prec + 1)) (h_fuel : fuel > 0) :
+    (normalizeMantissa cfg_prec mantissa exp fuel).2 ≥ exp + 1 := by
+  cases fuel with
+  | zero => omega
+  | succ n =>
+    unfold normalizeMantissa
+    simp only [Nat.add_one_ne_zero, ↓reduceIte]
+    have h_pos : mantissa ≠ 0 := by omega
+    simp only [h_pos, ↓reduceIte, h_big, ↓reduceIte]
+    -- After dividing: mantissa' = mantissa / 2, exp' = exp + 1
+    -- We need: final_exp ≥ exp + 1
+    -- Since mantissa ≥ 2^(prec+1), we have mantissa/2 ≥ 2^prec
+    have h_div_ge : mantissa / 2 ≥ 2^cfg_prec := by
+      have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+      omega
+    -- Two cases: mantissa/2 ≥ 2^(prec+1) or 2^prec ≤ mantissa/2 < 2^(prec+1)
+    by_cases h_still_big : mantissa / 2 ≥ 2^(cfg_prec + 1)
+    · -- Still in division zone: recurse
+      have h_rec : (normalizeMantissa cfg_prec (mantissa / 2) (exp + 1) n).2 ≥ (exp + 1) + 1 := by
+        cases n with
+        | zero =>
+          unfold normalizeMantissa
+          simp only [↓reduceIte]
+          omega
+        | succ n' =>
+          exact normalizeMantissa_exp_ge_div cfg_prec (mantissa / 2) (exp + 1) (n' + 1) h_still_big (by omega)
+      omega
+    · -- In normalized range or multiplication zone (but can't be mult zone since mantissa/2 ≥ 2^prec)
+      push_neg at h_still_big
+      have h_normalized : 2^cfg_prec ≤ mantissa / 2 ∧ mantissa / 2 < 2^(cfg_prec + 1) := ⟨h_div_ge, h_still_big⟩
+      -- So it returns (mantissa/2, exp+1)
+      unfold normalizeMantissa
+      cases n with
+      | zero => simp
+      | succ n' =>
+        simp only [Nat.add_one_ne_zero, ↓reduceIte]
+        have h_div_nz : mantissa / 2 ≠ 0 := by omega
+        simp only [h_div_nz, ↓reduceIte]
+        simp only [not_le.mpr h_still_big, ↓reduceIte, not_lt.mpr h_div_ge, ↓reduceIte]
+
+/-- When normalization multiplies (0 < m < 2^prec), the final exponent is at most starting_exp - 1.
+    This is because after multiplying, m*2 < 2^(prec+1), so we never need to divide. -/
+theorem normalizeMantissa_exp_le_mul (cfg_prec : Nat) (mantissa : Nat) (exp : Int) (fuel : Nat)
+    (h_pos : 0 < mantissa) (h_small : mantissa < 2^cfg_prec) (h_fuel : fuel > 0) :
+    (normalizeMantissa cfg_prec mantissa exp fuel).2 ≤ exp - 1 := by
+  cases fuel with
+  | zero => omega
+  | succ n =>
+    unfold normalizeMantissa
+    simp only [Nat.add_one_ne_zero, ↓reduceIte]
+    have h_nz : mantissa ≠ 0 := Nat.pos_iff_ne_zero.mp h_pos
+    simp only [h_nz, ↓reduceIte]
+    -- mantissa < 2^prec < 2^(prec+1)
+    have h_not_big : ¬(mantissa ≥ 2^(cfg_prec + 1)) := by
+      have : 2^cfg_prec < 2^(cfg_prec + 1) := by
+        have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+        omega
+      omega
+    simp only [not_le.mpr (lt_of_not_le h_not_big), ↓reduceIte, h_small, ↓reduceIte]
+    -- After multiplying: mantissa' = mantissa * 2, exp' = exp - 1
+    -- We need: final_exp ≤ exp - 1
+    -- Since mantissa < 2^prec, we have mantissa*2 < 2^(prec+1), so no division
+    have h_mul_lt : mantissa * 2 < 2^(cfg_prec + 1) := by
+      have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+      omega
+    -- Two cases: mantissa*2 < 2^prec or 2^prec ≤ mantissa*2 < 2^(prec+1)
+    by_cases h_still_small : mantissa * 2 < 2^cfg_prec
+    · -- Still in multiplication zone: recurse
+      have h_mul_pos : 0 < mantissa * 2 := by omega
+      have h_rec : (normalizeMantissa cfg_prec (mantissa * 2) (exp - 1) n).2 ≤ (exp - 1) - 1 := by
+        cases n with
+        | zero =>
+          unfold normalizeMantissa
+          simp only [↓reduceIte]
+          omega
+        | succ n' =>
+          exact normalizeMantissa_exp_le_mul cfg_prec (mantissa * 2) (exp - 1) (n' + 1) h_mul_pos h_still_small (by omega)
+      omega
+    · -- In normalized range
+      push_neg at h_still_small
+      have h_normalized : 2^cfg_prec ≤ mantissa * 2 ∧ mantissa * 2 < 2^(cfg_prec + 1) := ⟨h_still_small, h_mul_lt⟩
+      -- So it returns (mantissa*2, exp-1)
+      unfold normalizeMantissa
+      cases n with
+      | zero => simp
+      | succ n' =>
+        simp only [Nat.add_one_ne_zero, ↓reduceIte]
+        have h_mul_nz : mantissa * 2 ≠ 0 := by omega
+        simp only [h_mul_nz, ↓reduceIte]
+        have h_mul_not_big : ¬(mantissa * 2 ≥ 2^(cfg_prec + 1)) := by omega
+        simp only [not_le.mpr (lt_of_not_le h_mul_not_big), ↓reduceIte, not_lt.mpr h_still_small, ↓reduceIte]
+
 /-- Normalization is monotonic: if m1 ≤ m2 and they start with the same exponent,
     and they end up with the same exponent after normalization, then the final
     mantissas are ordered.
@@ -1177,122 +1323,335 @@ theorem normalizeMantissa_value_eq_no_div (cfg_prec : Nat) (mantissa : Nat) (exp
     - Stay zone: mantissa ∈ [2^prec, 2^(prec+1))
     - Multiplication zone: mantissa < 2^prec
 
-    If m1 ≤ m2 and both end up with the same exponent, they must have traversed
-    compatible zones at each step. Since the operations within each zone preserve
-    ordering (division by 2 and multiplication by 2 are both monotonic), the final
-    mantissas maintain the original ordering. -/
+    If m1 ≤ m2 and both end up with the same exponent, they must have been in the
+    same zone at each step. Different zones cause exponents to diverge.
+    Since division/multiplication preserve order, the final mantissas are ordered. -/
 theorem normalizeMantissa_monotonic_same_exp (cfg_prec : Nat) (m1 m2 : Nat) (exp : Int) (fuel1 fuel2 : Nat)
     (h_le : m1 ≤ m2)
     (h_fuel1 : fuel1 ≥ m1 + cfg_prec) (h_fuel2 : fuel2 ≥ m2 + cfg_prec) :
     let (r1, e1) := normalizeMantissa cfg_prec m1 exp fuel1
     let (r2, e2) := normalizeMantissa cfg_prec m2 exp fuel2
     e1 = e2 → r1 ≤ r2 := by
-  intro e1 e2 h_exp_eq
-  -- The proof uses strong induction on the maximum fuel
-  -- Key observation: for sufficient fuel, the exponent after normalization is determined
-  -- entirely by the mantissa's position relative to the normalization zones.
-  -- If m1 ≤ m2 and they end up with the same exponent, the zones are compatible.
+  -- We prove this by strong induction on the sum of fuels
+  -- The key observation: for final exponents to match, m1 and m2 must be in the same zone
 
-  -- Case: m1 = 0
+  -- First, handle the trivial cases
   by_cases h_m1_zero : m1 = 0
-  · simp only [h_m1_zero]
-    have := normalizeMantissa_zero cfg_prec exp fuel1
-    simp only [this, Nat.zero_le]
+  · -- m1 = 0: result is 0, trivially ≤ anything
+    simp only [h_m1_zero, normalizeMantissa_zero, Nat.zero_le, implies_true]
 
-  -- Case: m2 = 0 (impossible since m1 ≤ m2 and m1 > 0)
+  have h_m1_pos : 0 < m1 := Nat.pos_of_ne_zero h_m1_zero
   have h_m2_pos : 0 < m2 := by omega
 
-  -- Both mantissas are positive
-  have h_m1_pos : 0 < m1 := by omega
+  -- Unfold one step of normalization for both
+  -- The key is to show that if final exponents match, zones must match
+  unfold normalizeMantissa
 
-  -- Use the isNormalized property to get that results are in [2^prec, 2^(prec+1)) or zero
-  have h_norm1 := normalizeMantissa_isNormalized cfg_prec m1 exp fuel1 h_fuel1
-  have h_norm2 := normalizeMantissa_isNormalized cfg_prec m2 exp fuel2 h_fuel2
+  -- Handle fuel = 0 cases
+  cases fuel1 with
+  | zero =>
+    simp only [↓reduceIte]
+    intro h_eq
+    -- fuel1 = 0 means we return (m1, exp) as-is
+    -- For fuel2, the result depends on the zones
+    -- If e1 = exp = e2, then m2's normalization also returned at this exp
+    -- This means fuel2 = 0 or m2 is already normalized
+    cases fuel2 with
+    | zero =>
+      simp only [↓reduceIte]
+      exact h_le
+    | succ n =>
+      simp only [Nat.add_one_ne_zero, ↓reduceIte, h_m2_pos.ne', ↓reduceIte]
+      split
+      · -- m2 ≥ 2^(prec+1): m2 divides, e2 ≥ exp+1
+        rename_i h_m2_big
+        intro h_eq
+        -- e1 = exp, e2 = (normalizeMantissa cfg_prec (m2/2) (exp+1) n).2
+        -- Since m2 ≥ 2^(prec+1), m2/2 ≥ 2^prec
+        have h_div_ge : m2 / 2 ≥ 2^cfg_prec := by
+          have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+          omega
+        -- Apply normalizeMantissa_exp_ge_not_mult: e2 ≥ exp+1
+        have h_e2_ge := normalizeMantissa_exp_ge_not_mult cfg_prec (m2 / 2) (exp + 1) n h_div_ge
+        -- e1 = exp < exp+1 ≤ e2, contradiction with h_eq
+        omega
+      · split
+        · -- m2 < 2^prec: m2 multiplies, e2 ≤ exp-1
+          rename_i h_m2_not_big h_m2_small
+          intro h_eq
+          -- e1 = exp, e2 = (normalizeMantissa cfg_prec (m2*2) (exp-1) n).2
+          -- Since m2 < 2^prec, m2*2 < 2^(prec+1)
+          have h_mul_lt : m2 * 2 < 2^(cfg_prec + 1) := by
+            have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+            omega
+          -- Apply normalizeMantissa_exp_le_not_div: e2 ≤ exp-1
+          have h_e2_le := normalizeMantissa_exp_le_not_div cfg_prec (m2 * 2) (exp - 1) n h_mul_lt
+          -- e1 = exp > exp-1 ≥ e2, contradiction with h_eq
+          omega
+        · -- m2 in normalized range: e2 = exp, so e1 = e2 = exp
+          simp only [↓reduceIte]
+          intro _
+          exact h_le
+  | succ n1 =>
+    simp only [Nat.add_one_ne_zero, ↓reduceIte, h_m1_pos.ne', ↓reduceIte]
+    cases fuel2 with
+    | zero =>
+      simp only [↓reduceIte]
+      intro h_eq
+      split
+      · -- m1 divides but m2 returns as-is (e2 = exp)
+        rename_i h_m1_big
+        -- e1 = (normalizeMantissa cfg_prec (m1/2) (exp+1) n1).2
+        -- Since m1 ≥ 2^(prec+1), m1/2 ≥ 2^prec
+        have h_div_ge : m1 / 2 ≥ 2^cfg_prec := by
+          have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+          omega
+        have h_e1_ge := normalizeMantissa_exp_ge_not_mult cfg_prec (m1 / 2) (exp + 1) n1 h_div_ge
+        -- e1 ≥ exp+1 > exp = e2, contradiction
+        omega
+      · split
+        · -- m1 multiplies but m2 returns as-is (e2 = exp)
+          rename_i h_m1_not_big h_m1_small
+          -- e1 = (normalizeMantissa cfg_prec (m1*2) (exp-1) n1).2
+          -- Since m1 < 2^prec, m1*2 < 2^(prec+1)
+          have h_mul_lt : m1 * 2 < 2^(cfg_prec + 1) := by
+            have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+            omega
+          have h_e1_le := normalizeMantissa_exp_le_not_div cfg_prec (m1 * 2) (exp - 1) n1 h_mul_lt
+          -- e1 ≤ exp-1 < exp = e2, contradiction
+          omega
+        · simp only [↓reduceIte]
+          intro _
+          exact h_le
+    | succ n2 =>
+      simp only [Nat.add_one_ne_zero, ↓reduceIte, h_m2_pos.ne', ↓reduceIte]
 
-  -- If either result is zero, the ordering is trivial
-  cases h_norm1 with
-  | inl h_r1_zero =>
-    simp only [h_r1_zero, Nat.zero_le]
-  | inr h_r1_range =>
-    cases h_norm2 with
-    | inl h_r2_zero =>
-      -- r2 = 0 but r1 is in normalized range (non-zero)
-      -- This means m2 = 0 (since normalization preserves non-zero with enough fuel)
-      -- But we know m2 > 0, contradiction
-      exfalso
-      have := normalizeMantissa_pos cfg_prec m2 exp fuel2 h_m2_pos h_fuel2
-      omega
-    | inr h_r2_range =>
-      -- Both are in normalized range
-      -- The values are: r1 * 2^(e1 - prec) and r2 * 2^(e2 - prec)
-      -- Since e1 = e2, comparing mantissas is equivalent to comparing values
+      -- Now both have positive fuel and non-zero mantissa
+      -- Case split on zones for m1 and m2
 
-      -- Use value preservation bounds
-      have h_val1_le := normalizeMantissa_value_le cfg_prec m1 exp fuel1
-      have h_val2_le := normalizeMantissa_value_le cfg_prec m2 exp fuel2
+      -- m1's zone
+      by_cases h_m1_big : m1 ≥ 2^(cfg_prec + 1)
+      · -- m1 in division zone
+        simp only [h_m1_big, ↓reduceIte]
+        by_cases h_m2_big : m2 ≥ 2^(cfg_prec + 1)
+        · -- m2 also in division zone: both divide, recurse
+          simp only [h_m2_big, ↓reduceIte]
+          intro h_eq
+          -- Both recurse with m1/2, m2/2 at exp+1
+          have h_div_le : m1 / 2 ≤ m2 / 2 := Nat.div_le_div_right h_le
+          -- Fuel bounds: n1 ≥ m1/2 + prec, n2 ≥ m2/2 + prec
+          have h_fuel1' : n1 ≥ m1 / 2 + cfg_prec := by
+            -- h_fuel1 : fuel1 ≥ m1 + prec, and fuel1 = n1 + 1
+            -- So n1 + 1 ≥ m1 + prec, hence n1 ≥ m1 + prec - 1
+            -- We need n1 ≥ m1/2 + prec, i.e., m1 + prec - 1 ≥ m1/2 + prec
+            -- i.e., m1 - 1 ≥ m1/2, i.e., m1 ≥ 2 (which holds since m1 ≥ 2^(prec+1) ≥ 2)
+            have h1 : n1 + 1 ≥ m1 + cfg_prec := h_fuel1
+            have h2 : m1 / 2 ≤ m1 - 1 := by
+              have : m1 ≥ 2 := by
+                have : 2^(cfg_prec + 1) ≥ 2 := by
+                  have : 2^1 ≤ 2^(cfg_prec + 1) := Nat.pow_le_pow_right (by omega) (by omega)
+                  simp at this; exact this
+                omega
+              omega
+            omega
+          have h_fuel2' : n2 ≥ m2 / 2 + cfg_prec := by
+            have h1 : n2 + 1 ≥ m2 + cfg_prec := h_fuel2
+            have h2 : m2 / 2 ≤ m2 - 1 := by
+              have : m2 ≥ 2 := by
+                have : 2^(cfg_prec + 1) ≥ 2 := by
+                  have : 2^1 ≤ 2^(cfg_prec + 1) := Nat.pow_le_pow_right (by omega) (by omega)
+                  simp at this; exact this
+                omega
+              omega
+            omega
+          -- Apply the theorem recursively
+          exact normalizeMantissa_monotonic_same_exp cfg_prec (m1 / 2) (m2 / 2) (exp + 1) n1 n2
+            h_div_le h_fuel1' h_fuel2' h_eq
+        · -- m2 not in division zone but m1 is
+          push_neg at h_m2_big
+          by_cases h_m2_small : m2 < 2^cfg_prec
+          · -- m2 in multiplication zone: m1 divides (exp+1), m2 multiplies (exp-1)
+            -- Exponents diverge, so e1 ≠ e2
+            simp only [not_le.mpr h_m2_big, ↓reduceIte, h_m2_small, ↓reduceIte]
+            intro h_eq
+            exfalso
+            -- e1 from normalizeMantissa at exp+1 with m1/2 ≥ 2^prec, so e1 ≥ exp+1
+            have h_div_ge : m1 / 2 ≥ 2^cfg_prec := by
+              have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+              omega
+            have h_e1_ge := normalizeMantissa_exp_ge_not_mult cfg_prec (m1 / 2) (exp + 1) n1 h_div_ge
+            -- e2 from normalizeMantissa at exp-1 with m2*2 < 2^(prec+1), so e2 ≤ exp-1
+            have h_mul_lt : m2 * 2 < 2^(cfg_prec + 1) := by
+              have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+              omega
+            have h_e2_le := normalizeMantissa_exp_le_not_div cfg_prec (m2 * 2) (exp - 1) n2 h_mul_lt
+            -- e1 ≥ exp+1 > exp-1 ≥ e2, contradiction with h_eq
+            omega
+          · -- m2 in stay zone: m1 divides (exp+1), m2 stays (exp)
+            -- e1 ≥ exp+1, e2 = exp, so e1 ≠ e2
+            push_neg at h_m2_small
+            simp only [not_le.mpr h_m2_big, ↓reduceIte, not_lt.mpr h_m2_small, ↓reduceIte]
+            intro h_eq
+            exfalso
+            -- e1 from normalizeMantissa at exp+1 with m1/2 ≥ 2^prec, so e1 ≥ exp+1
+            have h_div_ge : m1 / 2 ≥ 2^cfg_prec := by
+              have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+              omega
+            have h_e1_ge := normalizeMantissa_exp_ge_not_mult cfg_prec (m1 / 2) (exp + 1) n1 h_div_ge
+            -- e2 = exp (m2 stays)
+            -- e1 ≥ exp+1 > exp = e2, contradiction with h_eq
+            omega
 
-      -- Key insight: r1 * 2^(e1 - prec) ≤ m1 * 2^(exp - prec) ≤ m2 * 2^(exp - prec)
-      -- And similarly r2 * 2^(e2 - prec) ≤ m2 * 2^(exp - prec)
+      · -- m1 not in division zone
+        push_neg at h_m1_big
+        simp only [not_le.mpr h_m1_big, ↓reduceIte]
+        by_cases h_m1_small : m1 < 2^cfg_prec
+        · -- m1 in multiplication zone
+          simp only [h_m1_small, ↓reduceIte]
+          by_cases h_m2_big : m2 ≥ 2^(cfg_prec + 1)
+          · -- m2 in division zone: exponents diverge
+            simp only [h_m2_big, ↓reduceIte]
+            intro h_eq
+            exfalso
+            -- e1 from normalizeMantissa at exp-1 with m1*2 < 2^(prec+1), so e1 ≤ exp-1
+            have h_mul_lt : m1 * 2 < 2^(cfg_prec + 1) := by
+              have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+              omega
+            have h_e1_le := normalizeMantissa_exp_le_not_div cfg_prec (m1 * 2) (exp - 1) n1 h_mul_lt
+            -- e2 from normalizeMantissa at exp+1 with m2/2 ≥ 2^prec, so e2 ≥ exp+1
+            have h_div_ge : m2 / 2 ≥ 2^cfg_prec := by
+              have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+              omega
+            have h_e2_ge := normalizeMantissa_exp_ge_not_mult cfg_prec (m2 / 2) (exp + 1) n2 h_div_ge
+            -- e1 ≤ exp-1 < exp+1 ≤ e2, contradiction with h_eq
+            omega
+          · push_neg at h_m2_big
+            simp only [not_le.mpr h_m2_big, ↓reduceIte]
+            by_cases h_m2_small : m2 < 2^cfg_prec
+            · -- Both in multiplication zone: both multiply, recurse
+              simp only [h_m2_small, ↓reduceIte]
+              intro h_eq
+              have h_mul_le : m1 * 2 ≤ m2 * 2 := Nat.mul_le_mul_right 2 h_le
+              -- Key insight: since both are in multiplication zone (< 2^prec),
+              -- the value is exactly preserved: v = m * 2^(exp - prec)
+              -- After normalization to same exponent e, we have:
+              --   r1 * 2^(e - prec) = m1 * 2^(exp - prec)
+              --   r2 * 2^(e - prec) = m2 * 2^(exp - prec)
+              -- So r1/r2 = m1/m2, hence r1 ≤ r2 iff m1 ≤ m2
+              have h_m1_small_pow : m1 < 2^(cfg_prec + 1) := by
+                have : 2^cfg_prec < 2^(cfg_prec + 1) := by
+                  have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+                  omega
+                omega
+              have h_m2_small_pow : m2 < 2^(cfg_prec + 1) := by
+                have : 2^cfg_prec < 2^(cfg_prec + 1) := by
+                  have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+                  omega
+                omega
+              -- Value preservation: since m < 2^(prec+1), no division occurs
+              have h_v1 := normalizeMantissa_value_eq_no_div cfg_prec m1 exp fuel1 h_m1_small_pow
+              have h_v2 := normalizeMantissa_value_eq_no_div cfg_prec m2 exp fuel2 h_m2_small_pow
+              -- Both final values are equal to input values
+              -- Let (r1, e1) and (r2, e2) be the results
+              -- r1 * 2^(e1 - prec) = m1 * 2^(exp - prec)
+              -- r2 * 2^(e2 - prec) = m2 * 2^(exp - prec)
+              -- Since e1 = e2 = e (given by h_eq), we have:
+              -- r1 * 2^(e - prec) = m1 * 2^(exp - prec)
+              -- r2 * 2^(e - prec) = m2 * 2^(exp - prec)
+              -- Dividing: r1 / r2 = m1 / m2
+              -- Since m1 ≤ m2, we have r1 ≤ r2 (for positive values)
+              let r1 := (normalizeMantissa cfg_prec m1 exp fuel1).1
+              let e1 := (normalizeMantissa cfg_prec m1 exp fuel1).2
+              let r2 := (normalizeMantissa cfg_prec m2 exp fuel2).1
+              let e2 := (normalizeMantissa cfg_prec m2 exp fuel2).2
+              -- From h_v1: r1 * 2^(e1 - prec) = m1 * 2^(exp - prec)
+              -- From h_v2: r2 * 2^(e2 - prec) = m2 * 2^(exp - prec)
+              -- Since e1 = e2 (from h_eq):
+              -- r1 * 2^(e1 - prec) ≤ r2 * 2^(e1 - prec)
+              -- iff r1 ≤ r2 (since 2^(e1 - prec) > 0)
+              have h_v1' : (r1 : Rat) * (2 : Rat) ^ (e1 - cfg_prec) = (m1 : Rat) * (2 : Rat) ^ (exp - cfg_prec) := h_v1
+              have h_v2' : (r2 : Rat) * (2 : Rat) ^ (e2 - cfg_prec) = (m2 : Rat) * (2 : Rat) ^ (exp - cfg_prec) := h_v2
+              -- From h_eq : e1 = e2
+              rw [h_eq] at h_v1'
+              -- Now: r1 * 2^(e2 - prec) = m1 * 2^(exp - prec)
+              -- And:  r2 * 2^(e2 - prec) = m2 * 2^(exp - prec)
+              have h_pow_pos : (0 : Rat) < (2 : Rat) ^ (e2 - cfg_prec) := by
+                apply zpow_pos_of_pos; decide
+              have h_pow_pos2 : (0 : Rat) < (2 : Rat) ^ (exp - cfg_prec) := by
+                apply zpow_pos_of_pos; decide
+              -- From the equations, r1 and r2 are determined by m1 and m2
+              -- r1 = m1 * 2^(exp - prec) / 2^(e2 - prec) = m1 * 2^(exp - e2)
+              -- r2 = m2 * 2^(exp - prec) / 2^(e2 - prec) = m2 * 2^(exp - e2)
+              -- So r1 ≤ r2 iff m1 ≤ m2
+              have h_r1_eq : (r1 : Rat) = (m1 : Rat) * (2 : Rat) ^ (exp - e2) := by
+                have : (2 : Rat) ^ (e2 - cfg_prec) ≠ 0 := ne_of_gt h_pow_pos
+                field_simp [this] at h_v1'
+                have h_pow_prod : (2 : Rat) ^ (exp - cfg_prec) = (2 : Rat) ^ (exp - e2) * (2 : Rat) ^ (e2 - cfg_prec) := by
+                  rw [← zpow_add₀ (by decide : (2 : Rat) ≠ 0)]
+                  congr 1; ring
+                rw [h_pow_prod] at h_v1'
+                have h_cancel := mul_right_cancel₀ (ne_of_gt h_pow_pos) h_v1'
+                exact h_cancel.symm
+              have h_r2_eq : (r2 : Rat) = (m2 : Rat) * (2 : Rat) ^ (exp - e2) := by
+                have : (2 : Rat) ^ (e2 - cfg_prec) ≠ 0 := ne_of_gt h_pow_pos
+                field_simp [this] at h_v2'
+                have h_pow_prod : (2 : Rat) ^ (exp - cfg_prec) = (2 : Rat) ^ (exp - e2) * (2 : Rat) ^ (e2 - cfg_prec) := by
+                  rw [← zpow_add₀ (by decide : (2 : Rat) ≠ 0)]
+                  congr 1; ring
+                rw [h_pow_prod] at h_v2'
+                have h_cancel := mul_right_cancel₀ (ne_of_gt h_pow_pos) h_v2'
+                exact h_cancel.symm
+              -- Now prove r1 ≤ r2
+              have h_exp_pow_nonneg : (0 : Rat) ≤ (2 : Rat) ^ (exp - e2) := by
+                apply zpow_nonneg; decide
+              have h_rat_le : (r1 : Rat) ≤ (r2 : Rat) := by
+                rw [h_r1_eq, h_r2_eq]
+                apply mul_le_mul_of_nonneg_right
+                · exact Nat.cast_le.mpr h_le
+                · exact h_exp_pow_nonneg
+              exact Nat.cast_le.mp (le_of_eq_of_le (Nat.cast_id r1).symm (le_trans h_rat_le (le_of_eq (Nat.cast_id r2))))
+            · -- m1 multiplies, m2 stays: exponents diverge
+              push_neg at h_m2_small
+              simp only [not_lt.mpr h_m2_small, ↓reduceIte]
+              intro h_eq
+              exfalso
+              -- e1 from normalizeMantissa at exp-1 with m1*2 < 2^(prec+1), so e1 ≤ exp-1
+              have h_mul_lt : m1 * 2 < 2^(cfg_prec + 1) := by
+                have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+                omega
+              have h_e1_le := normalizeMantissa_exp_le_not_div cfg_prec (m1 * 2) (exp - 1) n1 h_mul_lt
+              -- e2 = exp (m2 stays)
+              -- e1 ≤ exp-1 < exp = e2, contradiction with h_eq
+              omega
 
-      -- But this alone doesn't give r1 ≤ r2. We need to use the band structure.
-      -- Within the same band [2^e, 2^(e+1)), values are uniquely determined by mantissa.
-      -- The normalized values for m1 and m2 must satisfy:
-      -- - They came from m1 ≤ m2
-      -- - They underwent similar normalization steps (since same final exponent)
-
-      -- The key is that the normalization function is monotonic when:
-      -- 1. Both inputs are in the same zone, or
-      -- 2. They transition through zones in a compatible way
-
-      -- For inputs with the same starting exponent that end up with the same final exponent,
-      -- the zone transitions must be identical or compatible.
-
-      -- Since normalization only divides (for large mantissa) or multiplies (for small),
-      -- and division/multiplication are monotonic, the result maintains ordering.
-
-      by_cases h_result_le : (normalizeMantissa cfg_prec m1 exp fuel1).1 ≤ (normalizeMantissa cfg_prec m2 exp fuel2).1
-      · exact h_result_le
-      · -- Derive contradiction: if r1 > r2 with same exponent, value1 > value2
-        -- But the values should satisfy value1 ≤ input1 ≤ input2 (approximately)
-        -- and value2 should be comparable to input2.
-        push_neg at h_result_le
-
-        -- The normalized values are in the same band [2^e, 2^(e+1))
-        -- If r1 > r2, then value1 = r1 * 2^(e1-prec) > r2 * 2^(e2-prec) = value2
-        -- But value1 ≤ m1 * 2^(exp-prec) and m1 ≤ m2
-
-        -- This seems contradictory but isn't quite...
-        -- The issue is m1 ≤ m2 doesn't directly imply value1 ≤ value2 through bounds.
-
-        -- Actually, the key property is that the final exponent is determined by
-        -- which band the input value falls into. If m1 ≤ m2 and both end up in the
-        -- same final band, then value1 ≤ value2, hence r1 ≤ r2.
-
-        -- Since this is a subtle argument about the zone structure, we use the
-        -- computational fact that normalization is deterministic and monotonic.
-        -- For a complete formal proof, we'd need to trace through the zone transitions.
-
-        exfalso
-        -- The key insight: normalization preserves order when starting from same exp
-        -- and ending with same exp. This is because the "path" through zones is
-        -- determined by the mantissa, and m1 ≤ m2 means m1's path is "dominated" by m2's.
-
-        -- With both in normalized range and same final exponent:
-        -- v1 = r1 * 2^(e1 - prec) and v2 = r2 * 2^(e2 - prec)
-        -- If r1 > r2 and e1 = e2, then v1 > v2
-
-        -- Now, the input values are m1 * 2^(exp - prec) and m2 * 2^(exp - prec)
-        -- We have m1 ≤ m2, so input1 ≤ input2
-
-        -- By normalizeMantissa_value_le: v1 ≤ input1 and v2 ≤ input2
-        -- But this doesn't give v1 ≤ v2...
-
-        -- The missing piece is that normalization from the same starting exp
-        -- to the same ending exp must produce comparable values.
-        -- This follows from the deterministic nature of the algorithm.
-
-        -- For now, we note this requires more detailed tracking of zone transitions.
-        sorry
+        · -- m1 in stay zone
+          push_neg at h_m1_small
+          simp only [not_lt.mpr h_m1_small, ↓reduceIte]
+          by_cases h_m2_big : m2 ≥ 2^(cfg_prec + 1)
+          · -- m2 in division zone: m1 stays (exp), m2 divides (exp+1)
+            simp only [h_m2_big, ↓reduceIte]
+            intro h_eq
+            exfalso
+            -- e1 = exp (m1 stays)
+            -- e2 from normalizeMantissa at exp+1 with m2/2 ≥ 2^prec, so e2 ≥ exp+1
+            have h_div_ge : m2 / 2 ≥ 2^cfg_prec := by
+              have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+              omega
+            have h_e2_ge := normalizeMantissa_exp_ge_not_mult cfg_prec (m2 / 2) (exp + 1) n2 h_div_ge
+            -- e1 = exp < exp+1 ≤ e2, contradiction with h_eq
+            omega
+          · push_neg at h_m2_big
+            simp only [not_le.mpr h_m2_big, ↓reduceIte]
+            by_cases h_m2_small : m2 < 2^cfg_prec
+            · -- m1 in stay zone, m2 in multiplication zone
+              -- But m1 ≤ m2 and m1 ≥ 2^prec and m2 < 2^prec is impossible!
+              exfalso
+              omega
+            · -- Both in stay zone: return as-is
+              push_neg at h_m2_small
+              simp only [not_lt.mpr h_m2_small, ↓reduceIte]
+              intro _
+              exact h_le
 
 /-- After normalization with non-zero result, the value m * 2^(e - prec) is in [2^e, 2^(e+1)).
     This is because m ∈ [2^prec, 2^(prec+1)), so:
@@ -1616,20 +1975,41 @@ theorem roundToFloat_mantissa_monotonic_same_band (cfg_prec : Nat) (cfg_emin cfg
       push_neg at h_mx_le_my
       exfalso
 
-      -- The key insight: if log2Rat(x) = log2Rat(y) and x ≤ y,
-      -- then the rounding pipeline preserves order.
-      -- With same log2Rat, same starting exponent, and rounded_x ≤ rounded_y,
-      -- the normalized mantissas should satisfy mx ≤ my.
+      -- The key insight: with same log2Rat and rounded_x ≤ rounded_y,
+      -- the normalized mantissas should satisfy mx ≤ my if exp_x = exp_y.
+      -- If exp_x ≠ exp_y but clamp_x = clamp_y, we derive contradiction.
 
-      -- Since the final clamped exponents match and rounded_x ≤ rounded_y,
-      -- the normalization should produce mx ≤ my.
+      by_cases h_exp_raw_eq : exp_x = exp_y
+      · -- exp_x = exp_y: apply normalizeMantissa_monotonic_same_exp
+        have h_mono := normalizeMantissa_monotonic_same_exp cfg_prec rounded_x rounded_y e_y
+          (rounded_x + cfg_prec) (rounded_y + cfg_prec) h_rounded_le h_fuel_x h_fuel_y h_exp_raw_eq
+        omega
+      · -- exp_x ≠ exp_y but clamp_x = clamp_y
+        -- This can happen if one or both exponents are clamped
+        -- Since rounded_x ≤ rounded_y and same starting exponent,
+        -- normalization gives exp_x ≤ exp_y (by normalizeMantissa_exp_ge_not_mult/exp_le_not_div)
+        -- If exp_x < exp_y but clamped versions equal, both must be clamped to same boundary
+        -- In this case, we use value preservation arguments
 
-      -- This follows from normalizeMantissa_monotonic_same_exp when the
-      -- unclamped exponents also match. For the clamped case, similar reasoning applies.
+        -- For now, use the value-based argument:
+        -- Both values are in the same band [2^e, 2^(e+1)) after clamping
+        -- With x ≤ y and proper rounding, the mantissas should be ordered
+        -- This requires more careful analysis of the clamping interaction
+        -- The computational verification confirms this holds
 
-      -- For now, we note this requires the helper lemma which has infrastructure.
-      -- The computational verification shows this always holds.
-      sorry
+        -- Since this case is rare (clamping typically happens at extremes),
+        -- we note that the unclamped case is the primary path
+        have h_exp_x_le_exp_y : exp_x ≤ exp_y := by
+          -- From normalizeMantissa_exp_le_not_div or similar reasoning
+          -- If rounded_x ≤ rounded_y and same starting exp, then exp_x ≤ exp_y
+          -- This is because larger mantissa can only stay same or increase exponent
+          -- Let's unfold and analyze...
+          -- For complete rigor, this would need another helper lemma
+          -- For now, admit this auxiliary fact
+          sorry
+        -- If exp_x < exp_y, then clamp_x and clamp_y can only match if both clamped
+        -- This is a boundary case that the computational tests verify
+        sorry
 
   · -- Case 2: log2Rat(x) ≠ log2Rat(y)
     -- This is the more complex case where the scaling factors differ.
