@@ -255,6 +255,53 @@ def log2Rat (q : Rat) : Int :=
   if num = 0 then 0
   else (log2Nat num : Int) - (log2Nat den : Int)
 
+/-- Helper: log2Nat of product with power of 2 -/
+theorem log2Nat_mul_pow2 (m k : Nat) (hm : m > 0) :
+    log2Nat (m * 2^k) = log2Nat m + k := by
+  induction k with
+  | zero => simp
+  | succ n ih =>
+    rw [Nat.pow_succ, ← Nat.mul_assoc]
+    unfold log2Nat
+    have h1 : ¬(m * 2^n * 2 ≤ 1) := by
+      have h2 : m * 2^n * 2 ≥ 2 := by
+        have h3 : m * 2^n ≥ 1 := by
+          have h4 : 2^n ≥ 1 := Nat.one_le_pow n 2 (by omega)
+          omega
+        omega
+      omega
+    simp only [h1, ↓reduceIte]
+    have h2 : m * 2^n * 2 / 2 = m * 2^n := Nat.mul_div_cancel_right _ (by omega : 0 < 2)
+    rw [h2, ih]
+    omega
+
+/-- log2Rat of a normalized float value equals the exponent.
+    For m ∈ [2^prec, 2^(prec+1)) and q = m * 2^(e - prec), log2Rat q = e.
+    This relies on how Rat represents the product of an integer and a power of 2. -/
+theorem log2Rat_normalized (m : Nat) (e : Int) (prec : Nat)
+    (h_lo : 2^prec ≤ m) (h_hi : m < 2^(prec + 1)) :
+    log2Rat ((m : Rat) * (2 : Rat) ^ (e - (prec : Int))) = e := by
+  unfold log2Rat
+  -- abs_q = m * 2^(e - prec) since m > 0 and 2^(e-prec) > 0
+  have h_m_pos : (0 : Rat) < (m : Rat) := by
+    have h1 : (0 : Nat) < m := by
+      have h2 : 2^prec > 0 := Nat.pow_pos (by omega : 0 < 2) prec
+      omega
+    exact nat_cast_lt_rat 0 m h1
+  have h_pow_pos : (0 : Rat) < (2 : Rat) ^ (e - (prec : Int)) := by
+    apply zpow_pos; decide
+  have h_q_pos : (0 : Rat) < (m : Rat) * (2 : Rat) ^ (e - (prec : Int)) :=
+    mul_pos h_m_pos h_pow_pos
+  have h_not_neg : ¬((m : Rat) * (2 : Rat) ^ (e - (prec : Int)) < 0) := not_lt.mpr (le_of_lt h_q_pos)
+  simp only [h_not_neg, ↓reduceIte]
+  -- Now show the log2Nat calculation gives the right answer
+  -- This requires understanding how Rat represents m * 2^(e - prec)
+  -- For e ≥ prec: q is integer m * 2^(e-prec), num = m*2^(e-prec), den = 1
+  -- For e < prec: q = m / 2^(prec-e), representation depends on gcd
+  -- In both cases, log2Nat(num) - log2Nat(den) = log2Nat(m) + (e - prec) = prec + e - prec = e
+  -- This proof requires Rat representation lemmas
+  sorry
+
 /-- Round a non-negative rational to a natural number according to rounding mode -/
 def roundRatToNat (mode : RoundMode) (q : Rat) : Nat :=
   let floor_q := q.floor.toNat
@@ -643,15 +690,10 @@ theorem roundToFloat_idempotent (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
           simp only [hx_sign, hsign_q_def, Bool.true_eq_false, Bool.false_eq_true,
             ↓reduceIte, neg_mul, neg_neg]
       -- Step 3: e_approx = x.exponent
-      -- This is the key step that requires log2Rat to give the correct answer
-      -- For a normalized mantissa m ∈ [2^prec, 2^(prec+1)), we have log2Nat(m) = prec
-      -- So log2Rat(m * 2^(e-prec)) = log2Nat(num) - log2Nat(den)
-      -- The exact value depends on whether e >= prec or not
+      -- Use the log2Rat_normalized lemma
       have h_e_approx : e_approx = x.exponent := by
-        -- This requires proving log2Rat correctly computes floor(log2(abs_q))
-        -- and that for normalized floats, this equals the exponent.
-        -- The proof depends on the specific representation of Rat
-        sorry
+        rw [he_approx_def, h_abs_q]
+        exact log2Rat_normalized x.mantissa x.exponent cfg_prec h_lo h_hi
       -- Step 4: scale_exp = cfg_prec - x.exponent
       have h_scale_exp : scale_exp = (cfg_prec : Int) - x.exponent := by
         rw [hscale_exp_def, h_e_approx]
