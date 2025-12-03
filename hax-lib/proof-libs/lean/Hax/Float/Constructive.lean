@@ -577,7 +577,21 @@ theorem fone_toRat (fmt : FloatFormat) : (fone fmt).toRat = 1 := by
   --       = 1 * 2^(prec - 1) * 2^(0 - (prec - 1))
   --       = 2^(prec - 1) * 2^(-(prec - 1))
   --       = 1
-  sorry -- TODO: prove rational arithmetic identity
+  unfold fone FloatValue.toRat FloatRepr.toRat
+  simp only [Bool.false_eq_true, ↓reduceIte, one_mul]
+  -- Goal: ↑(2 ^ (fmt.prec - 1)) * (2 : ℚ) ^ (0 - (↑fmt.prec - 1)) = 1
+  have hprec : fmt.prec ≥ 1 := fmt.prec_pos
+  have h1 : (0 : Int) - (↑fmt.prec - 1) = -(fmt.prec - 1 : Nat) := by
+    simp only [Int.ofNat_sub hprec]
+    omega
+  rw [h1]
+  rw [zpow_neg, zpow_natCast]
+  -- Goal: ↑(2 ^ (fmt.prec - 1)) * ((2 : ℚ) ^ (fmt.prec - 1))⁻¹ = 1
+  -- Convert ↑(2 ^ n) to (2 : ℚ) ^ n using simp with cast lemmas
+  simp only [Nat.cast_pow, Nat.cast_ofNat]
+  -- Goal: (2 : ℚ) ^ (fmt.prec - 1) * ((2 : ℚ) ^ (fmt.prec - 1))⁻¹ = 1
+  have h2 : (2 : ℚ) ^ (fmt.prec - 1) ≠ 0 := pow_ne_zero _ (by norm_num)
+  rw [mul_inv_cancel₀ h2]
 
 /-- Multiplying by one on the right is identity for finite values -/
 theorem fmul_one_right (fmt : FloatFormat) (mode : RoundMode) (f : FloatRepr fmt) :
