@@ -503,6 +503,15 @@ theorem log2Rat_normalized (m : Nat) (e : Int) (prec : Nat)
     -- Goal: log2Nat q.num.natAbs - k = e = prec - j
     omega
 
+/-- NOTE: log2Rat is NOT monotonic in general!
+    Counterexample: 4/3 < 3/2 but log2Rat(4/3) = 1 > 0 = log2Rat(3/2)
+
+    This is because log2Rat computes log2Nat(num) - log2Nat(den) separately,
+    which differs from floor(log2(num/den)).
+
+    However, roundToFloat is still monotonic because the normalization step
+    adjusts the initial log2Rat approximation to produce correct results. -/
+
 /-- Round a non-negative rational to a natural number according to rounding mode -/
 def roundRatToNat (mode : RoundMode) (q : Rat) : Nat :=
   let floor_q := q.floor.toNat
@@ -519,6 +528,59 @@ def roundRatToNat (mode : RoundMode) (q : Rat) : Nat :=
     if frac > 1/2 then floor_q + 1
     else if frac < 1/2 then floor_q
     else if floor_q % 2 = 0 then floor_q else floor_q + 1  -- tie: to even
+
+/-- roundRatToNat is monotonic: if x ≤ y then round(x) ≤ round(y) -/
+theorem roundRatToNat_monotonic (mode : RoundMode) (x y : Rat) (h : x ≤ y) :
+    roundRatToNat mode x ≤ roundRatToNat mode y := by
+  unfold roundRatToNat
+  -- Key insight: floor is monotonic, and the rounding adjustment preserves order
+  have h_floor : x.floor ≤ y.floor := Int.floor_le_floor h
+  -- This follows from floor monotonicity and the structure of rounding
+  -- For each mode, if x ≤ y, then the rounded values maintain order
+  cases mode <;> simp only
+  · -- TowardZero
+    exact Int.toNat_le_toNat h_floor
+  · -- TowardNegative
+    exact Int.toNat_le_toNat h_floor
+  · -- TowardPositive
+    -- floor(x) ≤ floor(y), and adding 1 when frac > 0 preserves order
+    by_cases hx_frac : x - ↑x.floor.toNat > 0 <;>
+    by_cases hy_frac : y - ↑y.floor.toNat > 0 <;>
+    simp only [hx_frac, hy_frac, ↓reduceIte] <;>
+    omega
+  · -- ToNearestAway
+    by_cases hx_hi : x - ↑x.floor.toNat > 1/2 <;>
+    by_cases hy_hi : y - ↑y.floor.toNat > 1/2 <;>
+    simp only [hx_hi, hy_hi, ↓reduceIte]
+    · omega
+    · omega
+    · by_cases hx_lo : x - ↑x.floor.toNat < 1/2 <;>
+      simp only [hx_lo, ↓reduceIte] <;> omega
+    · by_cases hx_lo : x - ↑x.floor.toNat < 1/2 <;>
+      by_cases hy_lo : y - ↑y.floor.toNat < 1/2 <;>
+      simp only [hx_lo, hy_lo, ↓reduceIte] <;> omega
+  · -- ToNearestEven
+    by_cases hx_hi : x - ↑x.floor.toNat > 1/2 <;>
+    by_cases hy_hi : y - ↑y.floor.toNat > 1/2 <;>
+    simp only [hx_hi, hy_hi, ↓reduceIte]
+    · omega
+    · omega
+    · by_cases hx_lo : x - ↑x.floor.toNat < 1/2 <;>
+      simp only [hx_lo, ↓reduceIte]
+      · omega
+      · by_cases hx_even : x.floor.toNat % 2 = 0 <;>
+        simp only [hx_even, ↓reduceIte] <;> omega
+    · by_cases hx_lo : x - ↑x.floor.toNat < 1/2 <;>
+      by_cases hy_lo : y - ↑y.floor.toNat < 1/2 <;>
+      simp only [hx_lo, hy_lo, ↓reduceIte]
+      · omega
+      · by_cases hy_even : y.floor.toNat % 2 = 0 <;>
+        simp only [hy_even, ↓reduceIte] <;> omega
+      · by_cases hx_even : x.floor.toNat % 2 = 0 <;>
+        simp only [hx_even, ↓reduceIte] <;> omega
+      · by_cases hx_even : x.floor.toNat % 2 = 0 <;>
+        by_cases hy_even : y.floor.toNat % 2 = 0 <;>
+        simp only [hx_even, hy_even, ↓reduceIte] <;> omega
 
 /-! ## Normalization -/
 
@@ -1049,6 +1111,106 @@ theorem roundToFloat_nonpos (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
     · exact nat_cast_nonneg _
     · apply zpow_nonneg; decide
 
+/-- The rounding pipeline for negative q relates to rounding of -q.
+
+    For q < 0:
+    - roundToFloat(q) has sign = true
+    - roundToFloat(-q) has sign = false
+    - Both use the same magnitude |-q| = -q for the rounding
+
+    This gives: toRat(roundToFloat(q)) = -toRat(roundToFloat(-q))
+
+    Key insight: the mantissa and exponent are computed identically from |q|,
+    so the only difference is the sign bit. -/
+theorem roundToFloat_neg_relation (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (q : Rat) (hq : q < 0) :
+    (roundToFloat cfg_prec cfg_emin cfg_emax mode q).toRat cfg_prec =
+    -((roundToFloat cfg_prec cfg_emin cfg_emax mode (-q)).toRat cfg_prec) := by
+  -- q < 0, so q ≠ 0 and -q > 0
+  have h_nz : q ≠ 0 := ne_of_lt hq
+  have h_neg_pos : 0 < -q := neg_pos.mpr hq
+  have h_neg_nz : -q ≠ 0 := ne_of_gt h_neg_pos
+  have h_neg_not_neg : ¬(-q < 0) := not_lt.mpr (le_of_lt h_neg_pos)
+  -- Unfold roundToFloat for both
+  unfold roundToFloat
+  simp only [h_nz, ite_false, hq, ite_true, h_neg_nz, h_neg_not_neg, neg_neg]
+  -- Both compute abs_q = -q and use the same pipeline
+  -- For q: sign = true, abs_q = -q
+  -- For -q: sign = false, abs_q = -q
+  -- The mantissa and exponent are the same
+  -- toRat for sign=true gives -base, for sign=false gives base
+  unfold FloatRepr.toRat
+  simp only [ite_true, ite_false]
+  -- Both sides simplify to the same expression with opposite signs
+  ring
+
+/-- Helper: roundToFloat for positive values is monotonic.
+
+    This is the core monotonicity property for the positive rounding pipeline.
+    For 0 < x ≤ y, we have toRat(roundToFloat(x)) ≤ toRat(roundToFloat(y)).
+
+    NOTE: log2Rat is NOT monotonic (counterexample: 4/3 < 3/2 but log2Rat(4/3) > log2Rat(3/2)).
+    However, roundToFloat IS still monotonic because the normalization step corrects
+    any errors from the log2Rat approximation.
+
+    The proof requires showing:
+    1. For each rounding mode, the rounded value is bounded by the input
+    2. These bounds combined with x ≤ y imply the monotonicity of rounded values
+
+    This is a fundamental IEEE 754 property that requires detailed case analysis. -/
+theorem roundToFloat_pos_monotonic (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
+    (mode : RoundMode) (x y : Rat) (hx : 0 < x) (hy : 0 < y) (h_le : x ≤ y) :
+    (roundToFloat cfg_prec cfg_emin cfg_emax mode x).toRat cfg_prec ≤
+    (roundToFloat cfg_prec cfg_emin cfg_emax mode y).toRat cfg_prec := by
+  -- Both x and y are positive, so sign = false for both
+  have h_x_nz : x ≠ 0 := ne_of_gt hx
+  have h_y_nz : y ≠ 0 := ne_of_gt hy
+  have h_x_not_neg : ¬(x < 0) := not_lt.mpr (le_of_lt hx)
+  have h_y_not_neg : ¬(y < 0) := not_lt.mpr (le_of_lt hy)
+
+  unfold roundToFloat
+  simp only [h_x_nz, ite_false, h_x_not_neg, h_y_nz, h_y_not_neg]
+
+  -- Both have sign = false, so toRat gives mantissa * 2^(exp - prec)
+  unfold FloatRepr.toRat
+  simp only [ite_false]
+
+  -- Need to show: m_x * 2^(e_x - prec) ≤ m_y * 2^(e_y - prec)
+  -- where (m_x, e_x) and (m_y, e_y) come from normalizeMantissa after rounding
+
+  -- KEY INSIGHT: Although log2Rat is not monotonic, the full rounding pipeline IS.
+  --
+  -- The pipeline works as follows for positive q:
+  -- 1. e_approx = log2Rat(q) -- initial exponent estimate (not monotonic!)
+  -- 2. mantissa_exact = q * 2^(prec - e_approx) -- scale to get mantissa
+  -- 3. mantissa_rounded = roundRatToNat(mode, mantissa_exact)
+  -- 4. (m, e) = normalizeMantissa(prec, mantissa_rounded, e_approx, fuel)
+  -- 5. e_final = clamp(e, emin, emax)
+  -- 6. Result: m * 2^(e_final - prec)
+  --
+  -- Monotonicity holds because:
+  -- - Normalization ensures m ∈ [2^prec, 2^(prec+1)) or m = 0
+  -- - The combination m * 2^e faithfully represents the rounded value
+  -- - For any rounding mode, round(x) ≤ round(y) when x ≤ y
+  --
+  -- Proof approach (by rounding mode):
+  -- - TowardZero: round(x) ≤ x ≤ y, and round(y) is largest representable ≤ y
+  --               Since round(x) ≤ y, we have round(x) ≤ round(y)
+  -- - TowardPositive: round(x) is smallest representable ≥ x ≥ round(y) when round(x) > y
+  --                   But round(x) > y contradicts round(y) being smallest ≥ y
+  -- - ToNearestEven/Away: Similar analysis with tie-breaking rules
+
+  -- The formal proof requires tracking through normalizeMantissa to show
+  -- that it preserves the value (or rounds correctly) and maintains order.
+
+  -- This is a well-established IEEE 754 property. For a complete formal proof,
+  -- one would need to:
+  -- 1. Show normalizeMantissa preserves m * 2^(e - prec) up to rounding
+  -- 2. Show the rounding direction is consistent for each mode
+  -- 3. Combine these with roundRatToNat_monotonic to get the final result
+
+  sorry  -- Core IEEE 754 monotonicity - requires normalizeMantissa value preservation
+
 /-- Rounding preserves order.
 
     This is a fundamental property of IEEE 754 rounding:
@@ -1095,14 +1257,38 @@ theorem roundToFloat_monotonic (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
             roundToFloat_nonneg cfg_prec cfg_emin cfg_emax mode y (le_of_lt hy_pos)
           exact le_trans h1 h2
         · -- x < 0 and y ≤ 0 (both negative)
-          -- This requires showing rounding preserves order for same-sign values
-          sorry
+          -- Since y ≤ 0 and ¬(0 < y), we have y ≤ 0
+          push_neg at hy_pos
+          -- x < 0 and y ≤ 0 and x ≤ y
+          -- Need: round(x) ≤ round(y)
+          --
+          -- For negative values, roundToFloat negates, rounds the absolute value,
+          -- then negates again. Since |-y| ≤ |-x| (because x ≤ y < 0 implies |x| ≥ |y|),
+          -- and rounding is monotonic for positive values,
+          -- we get round(|y|) ≤ round(|x|), hence -round(|x|) ≤ -round(|y|),
+          -- i.e., round(x) ≤ round(y).
+          --
+          -- Since y ≤ 0 and y ≠ 0, we have y < 0
+          have hy_neg : y < 0 := lt_of_le_of_ne hy_pos (Ne.symm hy)
+          -- Use the relationship: toRat(roundToFloat(q)) = -toRat(roundToFloat(-q)) for q < 0
+          rw [roundToFloat_neg_relation cfg_prec cfg_emin cfg_emax mode x hx_neg]
+          rw [roundToFloat_neg_relation cfg_prec cfg_emin cfg_emax mode y hy_neg]
+          -- Now we need: -toRat(round(-x)) ≤ -toRat(round(-y))
+          -- Equivalently: toRat(round(-y)) ≤ toRat(round(-x))
+          apply neg_le_neg_iff.mpr
+          -- We have -y ≤ -x and both are positive (since x < y < 0)
+          have h_neg_x_pos : 0 < -x := neg_pos.mpr hx_neg
+          have h_neg_y_pos : 0 < -y := neg_pos.mpr hy_neg
+          have h_neg_le : -y ≤ -x := neg_le_neg_iff.mpr h_le
+          -- Apply positive monotonicity
+          exact roundToFloat_pos_monotonic cfg_prec cfg_emin cfg_emax mode (-y) (-x)
+                h_neg_y_pos h_neg_x_pos h_neg_le
       · -- x ≥ 0, but x ≠ 0, so x > 0
         have hx_pos : 0 < x := lt_of_le_of_ne (not_lt.mp hx_neg) (Ne.symm hx)
         -- Since x > 0 and x ≤ y, we have y > 0
         have hy_pos : 0 < y := lt_of_lt_of_le hx_pos h_le
-        -- Both positive: requires showing rounding preserves order for positive values
-        sorry
+        -- Both positive: use the positive monotonicity helper
+        exact roundToFloat_pos_monotonic cfg_prec cfg_emin cfg_emax mode x y hx_pos hy_pos h_le
 
 /-- toRat is injective for non-zero normalized floats.
 
