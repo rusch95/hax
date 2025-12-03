@@ -80,6 +80,44 @@ inductive FloatValue (fmt : FloatFormat) where
   | infinity : Bool → FloatValue fmt  -- sign
   | nan : FloatValue fmt
 
+/-! # Canonical (Normalized) Representation
+
+A canonical representation is one where the mantissa has minimal trailing zeros.
+This ensures unique representation for each rational value (except for signed zeros).
+
+- Zero: mantissa = 0 (any sign gives the same rational value 0)
+- Normalized: 2^(prec-1) ≤ mantissa < 2^prec (leading implicit bit set)
+- Denormalized: exponent = emin and 0 < mantissa < 2^(prec-1) (allows gradual underflow)
+-/
+
+/-- A FloatRepr is canonical if it has a unique representation for its rational value.
+    Zero: mantissa = 0
+    Non-zero normalized: 2^(prec-1) ≤ mantissa (leading bit is set)
+    Non-zero denormalized: exponent = emin and odd mantissa (no trailing zeros) -/
+def FloatRepr.isCanonical {fmt : FloatFormat} (f : FloatRepr fmt) : Prop :=
+  f.mantissa = 0 ∨                           -- Zero
+  (f.mantissa ≥ 2^(fmt.prec - 1)) ∨          -- Normalized (leading bit set)
+  (f.exponent = fmt.emin ∧ f.mantissa % 2 = 1)  -- Denormalized with no trailing zeros
+
+/-- A FloatValue is canonical if it's not finite, or if its finite part is canonical -/
+def FloatValue.isCanonical {fmt : FloatFormat} : FloatValue fmt → Prop
+  | .finite f => f.isCanonical
+  | .infinity _ => True
+  | .nan => True
+
+/-- A FloatValue is non-zero -/
+def FloatValue.isNonZero {fmt : FloatFormat} : FloatValue fmt → Prop
+  | .finite f => f.mantissa ≠ 0
+  | .infinity _ => True
+  | .nan => True
+
+/-- Canonical non-zero representations with equal toRat have equal representations -/
+theorem FloatRepr.canonical_unique {fmt : FloatFormat} (f g : FloatRepr fmt)
+    (hf : f.isCanonical) (hg : g.isCanonical)
+    (hf_nz : f.mantissa ≠ 0) (hg_nz : g.mantissa ≠ 0)
+    (heq : f.toRat = g.toRat) : f.sign = g.sign ∧ f.mantissa = g.mantissa ∧ f.exponent = g.exponent := by
+  sorry  -- Complex proof about uniqueness of canonical representations
+
 /-! # Conversion to Rational -/
 
 /-- Convert a finite float representation to a rational number -/
@@ -1169,6 +1207,54 @@ instance : FloatSpec (FloatValue binary64) where
     | infinity s => simp [FloatValue.isFinite] at hfin
     | nan => simp [FloatValue.isFinite] at hfin
 
+  is_canonical := FloatValue.isCanonical
+  is_nonzero := FloatValue.isNonZero
+
+  zero_not_nonzero := by
+    simp only [Zero.zero, FloatValue.isNonZero, fzero]
+    exact fun h => h rfl
+
+  zero_is_canonical := by
+    simp only [Zero.zero, FloatValue.isCanonical, FloatRepr.isCanonical, fzero]
+    left; rfl
+
+  one_is_canonical := by
+    simp only [One.one, FloatValue.isCanonical, FloatRepr.isCanonical, fone]
+    right; left
+    -- 2^(prec-1) ≥ 2^(prec-1)
+    exact le_refl _
+
+  one_is_nonzero := by
+    simp only [One.one, FloatValue.isNonZero, fone]
+    exact Nat.two_pow_pos (binary64.prec - 1) |>.ne'
+
+  nonzero_not_equiv_zero := fun x hfin hnz => by
+    cases x with
+    | finite f =>
+      simp only [FloatValue.isNonZero] at hnz
+      simp only [Zero.zero, FloatValue.equiv, fzero, FloatRepr.toRat]
+      intro heq
+      -- heq : f.toRat = 0
+      -- But if f.mantissa ≠ 0, then f.toRat ≠ 0
+      simp only [FloatRepr.toRat] at heq
+      -- f.toRat = sign_factor * mantissa * scale
+      -- For mantissa ≠ 0 and scale ≠ 0, this is non-zero
+      sorry  -- Need: mantissa ≠ 0 → toRat ≠ 0
+    | infinity s => simp [FloatValue.isFinite] at hfin
+    | nan => simp [FloatValue.isFinite] at hfin
+
+  neg_preserves_nonzero := fun x hnz => by
+    cases x with
+    | finite f =>
+      simp only [Neg.neg, fneg, FloatValue.isNonZero] at hnz ⊢
+      exact hnz
+    | infinity s =>
+      simp only [Neg.neg, fneg, FloatValue.isNonZero]
+      trivial
+    | nan =>
+      simp only [Neg.neg, fneg, FloatValue.isNonZero]
+      trivial
+
   mul_zero_finite := fun x hfin => by
     cases x with
     | finite f =>
@@ -1186,11 +1272,25 @@ instance : FloatSpec (FloatValue binary64) where
   to_rat_inf := toRat_infinity binary64 false
   to_rat_zero := toRat_zero binary64
 
-  to_rat_inj := fun x y hx hy heq => by
-    -- This fails for signed zeros (+0 and -0 have same toRat but different representations)
-    -- Also fails for non-canonical representations (same toRat, different mantissa/exp)
-    -- Would need: 1) semantic equality, or 2) normalization invariant in FloatRepr
-    sorry
+  to_rat_inj := fun x y hx hy hx_can hy_can hx_nz hy_nz heq => by
+    -- With canonical and non-zero preconditions, this should be provable
+    cases x with
+    | finite fx =>
+      cases y with
+      | finite fy =>
+        simp only [FloatValue.toRat] at heq
+        simp only [FloatValue.isCanonical, FloatValue.isNonZero] at hx_can hy_can hx_nz hy_nz
+        -- Use canonical_unique theorem
+        have ⟨hsign, hmant, hexp⟩ := FloatRepr.canonical_unique fx fy hx_can hy_can hx_nz hy_nz heq
+        -- Now construct equality
+        congr 1
+        cases fx; cases fy
+        simp only at hsign hmant hexp
+        simp [hsign, hmant, hexp]
+      | infinity s => simp [FloatValue.isFinite] at hy
+      | nan => simp [FloatValue.isFinite] at hy
+    | infinity s => simp [FloatValue.isFinite] at hx
+    | nan => simp [FloatValue.isFinite] at hx
 
   to_rat_inj_equiv := to_rat_inj_equiv
 
@@ -1252,7 +1352,41 @@ instance : FloatSpec (FloatValue binary64) where
     | nan => simp [FloatValue.isFinite] at hfin
 
   le_trans := le_trans
-  le_antisymm := fun _ _ _ _ => by sorry  -- See note on le_antisymm_finite
+  le_antisymm := fun x y hxy hyx hx_can hy_can hx_nz hy_nz => by
+    -- With canonical and non-zero preconditions, use canonical_unique
+    cases x with
+    | finite fx =>
+      cases y with
+      | finite fy =>
+        simp only [LE.le, FloatValue.le] at hxy hyx
+        have heq : fx.toRat = fy.toRat := le_antisymm hxy hyx
+        simp only [FloatValue.isCanonical, FloatValue.isNonZero] at hx_can hy_can hx_nz hy_nz
+        -- Use canonical_unique
+        have ⟨hsign, hmant, hexp⟩ := FloatRepr.canonical_unique fx fy hx_can hy_can hx_nz hy_nz heq
+        congr 1
+        cases fx; cases fy
+        simp only at hsign hmant hexp
+        simp [hsign, hmant, hexp]
+      | infinity s =>
+        simp only [LE.le, FloatValue.le] at hxy hyx
+        -- -Inf ≤ finite, finite ≤ +Inf, but not both -Inf and +Inf
+        cases s <;> simp at hxy hyx
+      | nan =>
+        simp only [LE.le, FloatValue.le] at hxy
+    | infinity s =>
+      cases y with
+      | finite fy =>
+        simp only [LE.le, FloatValue.le] at hxy hyx
+        cases s <;> simp at hxy hyx
+      | infinity sy =>
+        simp only [LE.le, FloatValue.le] at hxy hyx
+        cases s <;> cases sy <;> simp at hxy hyx
+        · rfl  -- both -Inf
+        · rfl  -- both +Inf
+      | nan =>
+        simp only [LE.le, FloatValue.le] at hxy
+    | nan =>
+      simp only [LE.le, FloatValue.le] at hxy
   le_antisymm_equiv := le_antisymm_equiv
   le_total := fun x y hx hy => by
     cases x with
@@ -1342,6 +1476,49 @@ instance : FloatSpec (FloatValue binary32) where
     | infinity s => simp [FloatValue.isFinite] at hfin
     | nan => simp [FloatValue.isFinite] at hfin
 
+  is_canonical := FloatValue.isCanonical
+  is_nonzero := FloatValue.isNonZero
+
+  zero_not_nonzero := by
+    simp only [Zero.zero, FloatValue.isNonZero, fzero]
+    exact fun h => h rfl
+
+  zero_is_canonical := by
+    simp only [Zero.zero, FloatValue.isCanonical, FloatRepr.isCanonical, fzero]
+    left; rfl
+
+  one_is_canonical := by
+    simp only [One.one, FloatValue.isCanonical, FloatRepr.isCanonical, fone]
+    right; left
+    exact le_refl _
+
+  one_is_nonzero := by
+    simp only [One.one, FloatValue.isNonZero, fone]
+    exact Nat.two_pow_pos (binary32.prec - 1) |>.ne'
+
+  nonzero_not_equiv_zero := fun x hfin hnz => by
+    cases x with
+    | finite f =>
+      simp only [FloatValue.isNonZero] at hnz
+      simp only [Zero.zero, FloatValue.equiv, fzero, FloatRepr.toRat]
+      intro heq
+      simp only [FloatRepr.toRat] at heq
+      sorry  -- Need: mantissa ≠ 0 → toRat ≠ 0
+    | infinity s => simp [FloatValue.isFinite] at hfin
+    | nan => simp [FloatValue.isFinite] at hfin
+
+  neg_preserves_nonzero := fun x hnz => by
+    cases x with
+    | finite f =>
+      simp only [Neg.neg, fneg, FloatValue.isNonZero] at hnz ⊢
+      exact hnz
+    | infinity s =>
+      simp only [Neg.neg, fneg, FloatValue.isNonZero]
+      trivial
+    | nan =>
+      simp only [Neg.neg, fneg, FloatValue.isNonZero]
+      trivial
+
   mul_zero_finite := fun x hfin => by
     cases x with
     | finite f =>
@@ -1356,9 +1533,22 @@ instance : FloatSpec (FloatValue binary32) where
   to_rat_nan := toRat_nan binary32
   to_rat_inf := toRat_infinity binary32 false
   to_rat_zero := toRat_zero binary32
-  to_rat_inj := fun x y hx hy heq => by
-    -- Same issue as binary64: signed zeros and non-canonical representations
-    sorry
+  to_rat_inj := fun x y hx hy hx_can hy_can hx_nz hy_nz heq => by
+    cases x with
+    | finite fx =>
+      cases y with
+      | finite fy =>
+        simp only [FloatValue.toRat] at heq
+        simp only [FloatValue.isCanonical, FloatValue.isNonZero] at hx_can hy_can hx_nz hy_nz
+        have ⟨hsign, hmant, hexp⟩ := FloatRepr.canonical_unique fx fy hx_can hy_can hx_nz hy_nz heq
+        congr 1
+        cases fx; cases fy
+        simp only at hsign hmant hexp
+        simp [hsign, hmant, hexp]
+      | infinity s => simp [FloatValue.isFinite] at hy
+      | nan => simp [FloatValue.isFinite] at hy
+    | infinity s => simp [FloatValue.isFinite] at hx
+    | nan => simp [FloatValue.isFinite] at hx
   to_rat_inj_equiv := to_rat_inj_equiv
   to_rat_neg := fneg_toRat
 
@@ -1409,7 +1599,39 @@ instance : FloatSpec (FloatValue binary32) where
     | infinity s => simp [FloatValue.isFinite] at hfin
     | nan => simp [FloatValue.isFinite] at hfin
   le_trans := le_trans
-  le_antisymm := fun _ _ _ _ => by sorry  -- See note on le_antisymm_finite
+  le_antisymm := fun x y hxy hyx hx_can hy_can hx_nz hy_nz => by
+    -- Same as binary64
+    cases x with
+    | finite fx =>
+      cases y with
+      | finite fy =>
+        simp only [LE.le, FloatValue.le] at hxy hyx
+        have heq : fx.toRat = fy.toRat := le_antisymm hxy hyx
+        simp only [FloatValue.isCanonical, FloatValue.isNonZero] at hx_can hy_can hx_nz hy_nz
+        have ⟨hsign, hmant, hexp⟩ := FloatRepr.canonical_unique fx fy hx_can hy_can hx_nz hy_nz heq
+        congr 1
+        cases fx; cases fy
+        simp only at hsign hmant hexp
+        simp [hsign, hmant, hexp]
+      | infinity s =>
+        simp only [LE.le, FloatValue.le] at hxy hyx
+        cases s <;> simp at hxy hyx
+      | nan =>
+        simp only [LE.le, FloatValue.le] at hxy
+    | infinity s =>
+      cases y with
+      | finite fy =>
+        simp only [LE.le, FloatValue.le] at hxy hyx
+        cases s <;> simp at hxy hyx
+      | infinity sy =>
+        simp only [LE.le, FloatValue.le] at hxy hyx
+        cases s <;> cases sy <;> simp at hxy hyx
+        · rfl
+        · rfl
+      | nan =>
+        simp only [LE.le, FloatValue.le] at hxy
+    | nan =>
+      simp only [LE.le, FloatValue.le] at hxy
   le_antisymm_equiv := le_antisymm_equiv
   le_total := fun x y hx hy => by
     cases x with

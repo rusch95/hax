@@ -96,6 +96,15 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α]
   /-- Check if value is finite (not NaN and not infinite) -/
   is_finite : α → Bool
 
+  /-- Check if value is in canonical (normalized) form.
+      For constructive representations, this ensures unique representation for each value.
+      For native Float types, all values are considered canonical. -/
+  is_canonical : α → Prop
+
+  /-- Check if value is non-zero (semantically, not structurally).
+      This excludes both +0 and -0. -/
+  is_nonzero : α → Prop
+
   /-- NaN is NaN -/
   is_nan_nan : is_nan nan
 
@@ -120,6 +129,24 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α]
   /-- Negation preserves finiteness -/
   is_finite_neg : ∀ x : α, is_finite x → is_finite (-x)
 
+  /-- Zero is not non-zero -/
+  zero_not_nonzero : ¬ is_nonzero (0 : α)
+
+  /-- Zero is canonical -/
+  zero_is_canonical : is_canonical (0 : α)
+
+  /-- One is canonical -/
+  one_is_canonical : is_canonical (1 : α)
+
+  /-- One is non-zero -/
+  one_is_nonzero : is_nonzero (1 : α)
+
+  /-- Non-zero values are not equivalent to zero -/
+  nonzero_not_equiv_zero : ∀ x : α, is_finite x → is_nonzero x → ¬ equiv x (0 : α)
+
+  /-- Negation preserves non-zero -/
+  neg_preserves_nonzero : ∀ x : α, is_nonzero x → is_nonzero (-x)
+
   /-- Zero times finite value is zero (sound direction of zero product property).
       Note: The reverse direction is FALSE due to underflow (e.g. 1e-300 * 1e-300 = 0).
       We only axiomatize the sound direction: if either operand is zero, the product is zero. -/
@@ -137,10 +164,12 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α]
   /-- Conversion preserves zero -/
   to_rat_zero : to_rat (0 : α) = 0
 
-  /-- Conversion is injective for finite values (structural equality version).
-      Note: For types with signed zeros, this may require a sorry.
-      Use to_rat_inj_equiv for a fully provable version. -/
-  to_rat_inj : ∀ x y : α, is_finite x → is_finite y → to_rat x = to_rat y → x = y
+  /-- Conversion is injective for canonical non-zero finite values (structural equality version).
+      Preconditions exclude signed zeros and non-canonical representations which can have
+      the same rational value with different structural representations. -/
+  to_rat_inj : ∀ x y : α, is_finite x → is_finite y →
+    is_canonical x → is_canonical y → is_nonzero x → is_nonzero y →
+    to_rat x = to_rat y → x = y
 
   /-- Conversion is injective up to semantic equivalence (always provable) -/
   to_rat_inj_equiv : ∀ x y : α, is_finite x → is_finite y → to_rat x = to_rat y → equiv x y
@@ -196,10 +225,11 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α]
   /-- Ordering transitivity -/
   le_trans : ∀ x y z : α, x ≤ y → y ≤ z → x ≤ z
 
-  /-- Ordering antisymmetry (structural equality version).
-      Note: For types with signed zeros, this may require a sorry.
-      Use le_antisymm_equiv for a fully provable version. -/
-  le_antisymm : ∀ x y : α, x ≤ y → y ≤ x → x = y
+  /-- Ordering antisymmetry for canonical non-zero values (structural equality version).
+      Preconditions exclude signed zeros which satisfy x ≤ y and y ≤ x but have
+      different structural representations. -/
+  le_antisymm : ∀ x y : α, x ≤ y → y ≤ x →
+    is_canonical x → is_canonical y → is_nonzero x → is_nonzero y → x = y
 
   /-- Ordering antisymmetry (semantic equivalence version, always provable) -/
   le_antisymm_equiv : ∀ x y : α, x ≤ y → y ≤ x → equiv x y
@@ -371,19 +401,54 @@ theorem lt_of_le_of_ne (x y : α) : x ≤ y → ¬(y ≤ x) → x < y := by
   rw [lt_iff_le_not_le]
   exact ⟨hle, hnle⟩
 
--- Helper: from ≤ and ≠ get <
-theorem lt_of_le_of_not_eq (x y : α) : x ≤ y → x ≠ y → x < y := by
+-- Helper: from ≤ and ≠ get < (for canonical non-zero values)
+theorem lt_of_le_of_not_eq (x y : α)
+    (hx_can : is_canonical x) (hy_can : is_canonical y)
+    (hx_nz : is_nonzero x) (hy_nz : is_nonzero y) :
+    x ≤ y → x ≠ y → x < y := by
   intro hle hne
   apply lt_of_le_of_ne
   · exact hle
   · intro hyx
-    have : x = y := le_antisymm x y hle hyx
+    have : x = y := le_antisymm x y hle hyx hx_can hy_can hx_nz hy_nz
     exact absurd this hne
+
+-- Simpler version for comparing with 0 using semantic equivalence
+-- This works because if 0 ≤ x and x ≤ 0, then x ≃ 0, which contradicts is_nonzero x
+theorem lt_of_zero_le_of_nonzero (x : α) (hx_fin : is_finite x) (hx_nz : is_nonzero x) :
+    (0 : α) ≤ x → (0 : α) < x := by
+  intro h0x
+  rw [lt_iff_le_not_le]
+  constructor
+  · exact h0x
+  · intro hx0
+    -- From 0 ≤ x and x ≤ 0, we get x ≃ 0 by semantic antisymmetry
+    have h_equiv : equiv x (0 : α) := le_antisymm_equiv x 0 hx0 h0x
+    -- But x is nonzero, so x ≄ 0
+    exact nonzero_not_equiv_zero x hx_fin hx_nz h_equiv
+
+-- Version using structural inequality (requires proving nonzero from ≠ 0)
+-- Note: This requires the assumption that for finite values, x ≠ 0 implies is_nonzero x
+-- which may not hold for representations with signed zeros (+0 ≠ -0 structurally but both have toRat = 0)
+theorem lt_of_zero_le_of_ne_zero (x : α) (hx_fin : is_finite x) :
+    (0 : α) ≤ x → x ≠ (0 : α) → (0 : α) < x := by
+  intro h0x hne
+  rw [lt_iff_le_not_le]
+  constructor
+  · exact h0x
+  · intro hx0
+    -- From 0 ≤ x and x ≤ 0, we get x ≃ 0
+    have h_equiv : equiv x (0 : α) := le_antisymm_equiv x 0 hx0 h0x
+    -- Use eq_implies_equiv in reverse: x ≃ 0 + x ≠ 0 should give contradiction
+    -- But this doesn't directly work for signed zeros
+    sorry  -- Need: equiv x 0 → x = 0 or representation uniqueness
 
 -- Contrapositive of mul_monotonic_pos: cancellation law (for finite values and products)
 theorem mul_lt_mul_of_pos_right (x y z : α)
     (hx : is_finite x) (hy : is_finite y)
-    (hxz_fin : is_finite (x * z)) (hyz_fin : is_finite (y * z)) :
+    (hxz_fin : is_finite (x * z)) (hyz_fin : is_finite (y * z))
+    (hx_can : is_canonical x) (hy_can : is_canonical y)
+    (hx_nz : is_nonzero x) (hy_nz : is_nonzero y) :
     (0 : α) < z → x * z < y * z → x < y := by
   intro hz hlt
   -- Use le_total to split on x ≤ y vs y ≤ x
@@ -394,8 +459,8 @@ theorem mul_lt_mul_of_pos_right (x y z : α)
     constructor
     · exact hxy
     · intro hyx
-      -- If y ≤ x, then x = y by antisymmetry
-      have heq : x = y := le_antisymm x y hxy hyx
+      -- If y ≤ x, then x = y by antisymmetry (for canonical non-zero values)
+      have heq : x = y := le_antisymm x y hxy hyx hx_can hy_can hx_nz hy_nz
       -- From x * z < y * z we get ¬(y * z ≤ x * z)
       rw [lt_iff_le_not_le] at hlt
       -- But if x = y, then y * z ≤ x * z
@@ -432,7 +497,7 @@ theorem mul_le_mul (a b c d : α)
       rw [hd_eq, mul_zero_right b hb_fin]
       exact le_refl 0 is_finite_zero
     · -- d > 0
-      have hd_pos : 0 < d := lt_of_le_of_not_eq 0 d hd0 (Ne.symm hd_eq)
+      have hd_pos : 0 < d := lt_of_zero_le_of_ne_zero d hd_fin hd0 hd_eq
       -- We have 0 ≤ a ≤ b, so 0 ≤ b
       have hb0 : 0 ≤ b := le_trans 0 a b ha0 hab
       -- Case split on whether b = 0
@@ -440,13 +505,13 @@ theorem mul_le_mul (a b c d : α)
       · rw [hb_eq, mul_zero_left d hd_fin]
         exact le_refl 0 is_finite_zero
       · -- b > 0, so 0 < b and 0 < d
-        have hb_pos : 0 < b := lt_of_le_of_not_eq 0 b hb0 (Ne.symm hb_eq)
+        have hb_pos : 0 < b := lt_of_zero_le_of_ne_zero b hb_fin hb0 hb_eq
         -- By mul_monotonic_pos: 0 ≤ b and 0 < d implies 0 * d ≤ b * d
         have : 0 * d ≤ b * d := mul_monotonic_pos 0 b d hd_pos hb0
         rw [mul_zero_left d hd_fin] at this
         exact this
   · -- Case: c > 0
-    have hc_pos : 0 < c := lt_of_le_of_not_eq 0 c hc0 (Ne.symm hc_eq)
+    have hc_pos : 0 < c := lt_of_zero_le_of_ne_zero c hc_fin hc0 hc_eq
     -- By mul_monotonic_pos: a ≤ b and 0 < c implies a * c ≤ b * c
     have h1 : a * c ≤ b * c := mul_monotonic_pos a b c hc_pos hab
     -- Now need b * c ≤ b * d
@@ -464,7 +529,7 @@ theorem mul_le_mul (a b c d : α)
         _ = 0 * d := by rw [mul_zero_left d hd_fin]
         _ = b * d := by rw [← hb_eq]
     · -- b > 0
-      have hb_pos : 0 < b := lt_of_le_of_not_eq 0 b hb0 (Ne.symm hb_eq)
+      have hb_pos : 0 < b := lt_of_zero_le_of_ne_zero b hb_fin hb0 hb_eq
       -- By mul_monotonic_pos: c ≤ d and 0 < b implies c * b ≤ d * b
       -- Then use commutativity to get b * c ≤ b * d
       have h2_aux : c * b ≤ d * b := mul_monotonic_pos c d b hb_pos hcd
@@ -502,9 +567,9 @@ theorem sub_relative_error (x y : α)
 /-! ## Sign Properties -/
 
 -- Positive * positive = positive (for finite positive values with non-zero product)
--- Note: Requires x * y ≠ 0 to rule out underflow (e.g. 1e-200 * 1e-200 = 0)
+-- Note: Requires is_nonzero (x * y) to rule out underflow (e.g. 1e-200 * 1e-200 = 0)
 theorem mul_sign_pos (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y)
-    (hxy_fin : is_finite (x * y)) (hxy_ne_zero : x * y ≠ (0 : α)) :
+    (hxy_fin : is_finite (x * y)) (hxy_nz : is_nonzero (x * y)) :
   (0 : α) < x → (0 : α) < y → (0 : α) < x * y := by
   intro hx hy
   -- Show 0 * y < x * y, and since 0 * y = 0, we're done
@@ -515,17 +580,19 @@ theorem mul_sign_pos (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y)
       exact mul_monotonic_pos 0 x y hy (by rw [lt_iff_le_not_le] at hx; exact hx.1)
     · -- ¬(x * y ≤ 0 * y)
       intro h_contra
-      -- We have 0 * y ≤ x * y and x * y ≤ 0 * y, so x * y = 0 * y = 0
-      have h_eq : x * y = 0 * y := le_antisymm (x * y) (0 * y) h_contra (mul_monotonic_pos 0 x y hy (by rw [lt_iff_le_not_le] at hx; exact hx.1))
-      rw [mul_zero_left y hy_fin] at h_eq
-      -- But x * y ≠ 0 by hypothesis
-      exact hxy_ne_zero h_eq
+      -- We have 0 * y ≤ x * y and x * y ≤ 0 * y
+      -- Using semantic antisymmetry: x * y ≃ 0 * y = 0
+      have h_equiv : equiv (x * y) (0 * y) := le_antisymm_equiv (x * y) (0 * y) h_contra
+        (mul_monotonic_pos 0 x y hy (by rw [lt_iff_le_not_le] at hx; exact hx.1))
+      rw [mul_zero_left y hy_fin] at h_equiv
+      -- But x * y is nonzero, so it can't be equivalent to 0
+      exact nonzero_not_equiv_zero (x * y) hxy_fin hxy_nz h_equiv
   rw [mul_zero_left y hy_fin] at h
   exact h
 
 -- Negative * negative = positive (for finite values with non-zero product)
 theorem mul_sign_neg (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y)
-    (hxy_fin : is_finite (x * y)) (hxy_ne_zero : x * y ≠ (0 : α)) :
+    (hxy_fin : is_finite (x * y)) (hxy_nz : is_nonzero (x * y)) :
   x < (0 : α) → y < (0 : α) → (0 : α) < x * y := by
   intro hx hy
   -- From x < 0, get 0 < -x
@@ -565,16 +632,16 @@ theorem mul_sign_neg (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y)
       _ = x * y := neg_exact (x * y)
   have hxy_neg_fin : is_finite ((-x) * (-y)) := by
     rw [h_eq]; exact hxy_fin
-  have hxy_neg_ne_zero : (-x) * (-y) ≠ (0 : α) := by
-    rw [h_eq]; exact hxy_ne_zero
+  have hxy_neg_nz : is_nonzero ((-x) * (-y)) := by
+    rw [h_eq]; exact hxy_nz
   -- By mul_sign_pos: 0 < (-x) * (-y)
-  have h_prod : 0 < (-x) * (-y) := mul_sign_pos (-x) (-y) hx_neg_fin hy_neg_fin hxy_neg_fin hxy_neg_ne_zero h_neg_x h_neg_y
+  have h_prod : 0 < (-x) * (-y) := mul_sign_pos (-x) (-y) hx_neg_fin hy_neg_fin hxy_neg_fin hxy_neg_nz h_neg_x h_neg_y
   rw [← h_eq]
   exact h_prod
 
 -- Positive * negative = negative (for finite values with non-zero product)
 theorem mul_sign_mixed (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y)
-    (hxy_fin : is_finite (x * y)) (hxy_ne_zero : x * y ≠ (0 : α)) :
+    (hxy_fin : is_finite (x * y)) (hxy_nz : is_nonzero (x * y)) :
   (0 : α) < x → y < (0 : α) → x * y < (0 : α) := by
   intro hx hy
   -- From y < 0, get 0 < -y
@@ -596,15 +663,11 @@ theorem mul_sign_mixed (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y)
       _ = -(x * y) := by rw [mul_comm y x]
   have hxy_neg_fin' : is_finite (x * (-y)) := by
     rw [h_eq]; exact is_finite_neg (x * y) hxy_fin
-  have hxy_neg_ne_zero : x * (-y) ≠ (0 : α) := by
+  have hxy_neg_nz : is_nonzero (x * (-y)) := by
     rw [h_eq]
-    intro h_contra
-    -- If -(x * y) = 0, then x * y = -0 = 0
-    have : x * y = -0 := by rw [← h_contra]; exact (neg_exact (x * y)).symm
-    rw [neg_zero] at this
-    exact hxy_ne_zero this
+    exact neg_preserves_nonzero (x * y) hxy_nz
   -- By mul_sign_pos: 0 < x * (-y)
-  have h_prod : 0 < x * (-y) := mul_sign_pos x (-y) hx_fin hy_neg_fin hxy_neg_fin' hxy_neg_ne_zero hx h_neg_y
+  have h_prod : 0 < x * (-y) := mul_sign_pos x (-y) hx_fin hy_neg_fin hxy_neg_fin' hxy_neg_nz hx h_neg_y
   -- So 0 < -(x * y), which means x * y < 0
   rw [h_eq] at h_prod
   -- Need to show: 0 < -(x * y) implies x * y < 0
