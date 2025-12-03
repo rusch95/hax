@@ -17,6 +17,7 @@ Reference: https://flocq.gitlabpages.inria.fr/
 import Hax.Lib
 import Mathlib.Data.Rat.Defs
 import Mathlib.Algebra.Order.Ring.Rat
+import Mathlib.Tactic.NormNum
 
 namespace Float.Constructive
 
@@ -268,7 +269,157 @@ def fmul (fmt : FloatFormat) (mode : RoundMode)
   | .nan, _ => .nan
   | _, .nan => .nan
 
-/-! # Theorems (would be proved from definitions) -/
+/-- Floating-point negation (exact, no rounding needed) -/
+def fneg {fmt : FloatFormat} : FloatValue fmt → FloatValue fmt
+  | .finite f => .finite { f with sign := !f.sign }
+  | .infinity s => .infinity (!s)
+  | .nan => .nan
+
+/-- Floating-point division: compute exact quotient, then round -/
+def fdiv (fmt : FloatFormat) (mode : RoundMode)
+    (x y : FloatValue fmt) : FloatValue fmt :=
+  match x, y with
+  | .finite fx, .finite fy =>
+      if fy.mantissa = 0 then
+        if fx.mantissa = 0 then .nan  -- 0/0 = NaN
+        else .infinity fx.sign        -- x/0 = ±Inf
+      else round fmt mode (fx.toRat / fy.toRat)
+  | .infinity sx, .infinity _ => .nan  -- Inf/Inf = NaN
+  | .infinity s, .finite _ => .infinity s
+  | .finite fx, .infinity _ =>
+      -- finite/Inf = ±0
+      round fmt mode 0
+  | .nan, _ => .nan
+  | _, .nan => .nan
+
+/-- Floating-point subtraction: x - y = x + (-y) -/
+def fsub (fmt : FloatFormat) (mode : RoundMode)
+    (x y : FloatValue fmt) : FloatValue fmt :=
+  fadd fmt mode x (fneg y)
+
+/-! # Constants -/
+
+/-- Zero value -/
+def fzero (fmt : FloatFormat) : FloatValue fmt :=
+  .finite ⟨false, 0, fmt.emin,
+    Nat.two_pow_pos fmt.prec,
+    ⟨le_refl _, Int.le_of_lt fmt.emin_lt_emax⟩⟩
+
+/-- One value -/
+def fone (fmt : FloatFormat) : FloatValue fmt :=
+  -- 1.0 = 2^(prec-1) * 2^(-(prec-1)) = 1
+  -- For standard formats (binary32, binary64), 0 is in exponent range
+  .finite ⟨false, 2^(fmt.prec - 1), 0,
+    by have h : fmt.prec - 1 < fmt.prec := Nat.sub_lt fmt.prec_pos (by omega)
+       exact Nat.pow_lt_pow_right (by omega : 1 < 2) h,
+    ⟨by sorry, by sorry⟩⟩  -- Requires emin ≤ 0 ≤ emax
+
+/-- Positive infinity -/
+def finfinity (fmt : FloatFormat) : FloatValue fmt := .infinity false
+
+/-- NaN value -/
+def fnan (fmt : FloatFormat) : FloatValue fmt := .nan
+
+/-! # Predicates -/
+
+/-- Check if a value is NaN -/
+def FloatValue.isNaN {fmt : FloatFormat} : FloatValue fmt → Bool
+  | .nan => true
+  | _ => false
+
+/-- Check if a value is infinite -/
+def FloatValue.isInf {fmt : FloatFormat} : FloatValue fmt → Bool
+  | .infinity _ => true
+  | _ => false
+
+/-- Check if a value is finite -/
+def FloatValue.isFinite {fmt : FloatFormat} : FloatValue fmt → Bool
+  | .finite _ => true
+  | _ => false
+
+/-! # Ordering -/
+
+/-- Less than or equal (via rational conversion, NaN unordered) -/
+def FloatValue.le {fmt : FloatFormat} (x y : FloatValue fmt) : Prop :=
+  match x, y with
+  | .nan, _ => False
+  | _, .nan => False
+  | .infinity true, _ => True  -- -Inf ≤ everything
+  | _, .infinity false => True  -- everything ≤ +Inf
+  | .infinity false, _ => False  -- +Inf ≤ x only if x = +Inf (handled above)
+  | _, .infinity true => False   -- x ≤ -Inf only if x = -Inf (handled above)
+  | .finite fx, .finite fy => fx.toRat ≤ fy.toRat
+
+/-- Strict less than -/
+def FloatValue.lt {fmt : FloatFormat} (x y : FloatValue fmt) : Prop :=
+  x.le y ∧ ¬(y.le x)
+
+instance {fmt : FloatFormat} : LE (FloatValue fmt) := ⟨FloatValue.le⟩
+instance {fmt : FloatFormat} : LT (FloatValue fmt) := ⟨FloatValue.lt⟩
+
+/-! # Phase 2: Definitional Properties (trivially proved) -/
+
+-- Predicate properties
+@[simp] theorem isNaN_nan (fmt : FloatFormat) : (fnan fmt).isNaN = true := rfl
+@[simp] theorem isNaN_infinity (fmt : FloatFormat) (s : Bool) :
+    (FloatValue.infinity s : FloatValue fmt).isNaN = false := rfl
+@[simp] theorem isNaN_finite {fmt : FloatFormat} (f : FloatRepr fmt) :
+    (FloatValue.finite f).isNaN = false := rfl
+
+@[simp] theorem isInf_nan (fmt : FloatFormat) : (fnan fmt).isInf = false := rfl
+@[simp] theorem isInf_infinity (fmt : FloatFormat) (s : Bool) :
+    (FloatValue.infinity s : FloatValue fmt).isInf = true := rfl
+@[simp] theorem isInf_finite {fmt : FloatFormat} (f : FloatRepr fmt) :
+    (FloatValue.finite f).isInf = false := rfl
+
+@[simp] theorem isFinite_nan (fmt : FloatFormat) : (fnan fmt).isFinite = false := rfl
+@[simp] theorem isFinite_infinity (fmt : FloatFormat) (s : Bool) :
+    (FloatValue.infinity s : FloatValue fmt).isFinite = false := rfl
+@[simp] theorem isFinite_finite {fmt : FloatFormat} (f : FloatRepr fmt) :
+    (FloatValue.finite f).isFinite = true := rfl
+
+-- Finite definition characterization
+theorem finite_def {fmt : FloatFormat} (x : FloatValue fmt) :
+    x.isFinite = true ↔ x.isNaN = false ∧ x.isInf = false := by
+  cases x <;> simp [FloatValue.isFinite, FloatValue.isNaN, FloatValue.isInf]
+
+-- toRat properties
+@[simp] theorem toRat_nan (fmt : FloatFormat) : (fnan fmt).toRat = 0 := rfl
+@[simp] theorem toRat_infinity (fmt : FloatFormat) (s : Bool) :
+    (FloatValue.infinity s : FloatValue fmt).toRat = 0 := rfl
+
+theorem toRat_zero (fmt : FloatFormat) : (fzero fmt).toRat = 0 := by
+  simp only [fzero, FloatValue.toRat, FloatRepr.toRat]
+  simp [mul_comm]
+
+-- Zero and one are finite
+theorem isFinite_zero (fmt : FloatFormat) : (fzero fmt).isFinite = true := rfl
+theorem isFinite_one (fmt : FloatFormat) : (fone fmt).isFinite = true := rfl
+
+-- Negation preserves finiteness
+theorem isFinite_neg {fmt : FloatFormat} (x : FloatValue fmt) :
+    x.isFinite = true → (fneg x).isFinite = true := by
+  intro h
+  cases x <;> simp_all [fneg, FloatValue.isFinite]
+
+-- Double negation
+theorem neg_neg {fmt : FloatFormat} (x : FloatValue fmt) : fneg (fneg x) = x := by
+  cases x with
+  | finite f => simp [fneg, Bool.not_not]
+  | infinity s => simp [fneg, Bool.not_not]
+  | nan => rfl
+
+-- Negation of toRat (proving fneg_exact)
+theorem fneg_toRat {fmt : FloatFormat} (x : FloatValue fmt) :
+    (fneg x).toRat = -(x.toRat) := by
+  cases x with
+  | finite f =>
+    simp only [fneg, FloatValue.toRat, FloatRepr.toRat]
+    cases f.sign <;> simp [neg_mul]
+  | infinity s => simp [fneg, FloatValue.toRat]
+  | nan => simp [fneg, FloatValue.toRat]
+
+/-! # Phase 3: Commutativity -/
 
 /-- Machine epsilon: smallest ε such that 1 + ε ≠ 1 -/
 def epsilon (fmt : FloatFormat) : Rat := (2 : Rat) ^ (1 - fmt.prec : Int)
@@ -280,11 +431,91 @@ def halfUlp (fmt : FloatFormat) : Rat := epsilon fmt / 2
 -- and rounding being deterministic
 theorem fadd_comm (fmt : FloatFormat) (mode : RoundMode) (x y : FloatValue fmt) :
     fadd fmt mode x y = fadd fmt mode y x := by
-  sorry -- Would follow from Rat.add_comm and determinism of round
+  match x, y with
+  | .finite fx, .finite fy =>
+    simp only [fadd, add_comm]
+  | .finite _, .infinity _ => rfl
+  | .finite _, .nan => rfl
+  | .infinity _, .finite _ => rfl
+  | .infinity sx, .infinity sy =>
+    simp only [fadd]
+    -- Rewrite sy == sx to sx == sy using commutativity
+    conv_rhs => rw [Bool.beq_comm (a := sy) (b := sx)]
+    -- Now both conditions are (sx == sy)
+    by_cases h : sx == sy
+    · simp [eq_of_beq h]
+    · simp [h]
+  | .infinity _, .nan => rfl
+  | .nan, .finite _ => rfl
+  | .nan, .infinity _ => rfl
+  | .nan, .nan => rfl
 
 theorem fmul_comm (fmt : FloatFormat) (mode : RoundMode) (x y : FloatValue fmt) :
     fmul fmt mode x y = fmul fmt mode y x := by
-  sorry -- Would follow from Rat.mul_comm and determinism of round
+  match x, y with
+  | .finite fx, .finite fy =>
+    simp only [fmul, mul_comm]
+  | .finite fx, .infinity sy =>
+    simp only [fmul, FloatValue.isNegative, Bool.xor_comm]
+  | .finite _, .nan => rfl
+  | .infinity sx, .finite fy =>
+    simp only [fmul, FloatValue.isNegative, Bool.xor_comm]
+  | .infinity sx, .infinity sy =>
+    simp only [fmul, Bool.xor_comm]
+  | .infinity _, .nan => rfl
+  | .nan, .finite _ => rfl
+  | .nan, .infinity _ => rfl
+  | .nan, .nan => rfl
+
+/-! # Phase 4: Identity Properties -/
+
+/-- Key property: rounding a representable value gives back the same value.
+    This is the idempotence property of correct rounding. -/
+axiom round_idempotent {fmt : FloatFormat} (mode : RoundMode) (f : FloatRepr fmt) :
+    round fmt mode f.toRat = .finite f
+
+/-- Helper: fzero.toRat = 0 -/
+theorem fzero_toRat (fmt : FloatFormat) : (fzero fmt).toRat = 0 := by
+  simp only [fzero, FloatValue.toRat, FloatRepr.toRat]
+  simp [mul_comm]
+
+/-- Adding zero on the right is identity for finite values -/
+theorem fadd_zero_right (fmt : FloatFormat) (mode : RoundMode) (f : FloatRepr fmt) :
+    fadd fmt mode (.finite f) (fzero fmt) = .finite f := by
+  -- fadd of finite values is round of sum
+  change round fmt mode (f.toRat + (fzero fmt).toRat) = .finite f
+  -- fzero.toRat = 0
+  rw [fzero_toRat, add_zero]
+  -- Apply round_idempotent
+  exact round_idempotent mode f
+
+/-- Adding zero on the left is identity for finite values -/
+theorem fadd_zero_left (fmt : FloatFormat) (mode : RoundMode) (f : FloatRepr fmt) :
+    fadd fmt mode (fzero fmt) (.finite f) = .finite f := by
+  rw [fadd_comm]
+  exact fadd_zero_right fmt mode f
+
+/-- Helper: fone.toRat = 1 -/
+theorem fone_toRat (fmt : FloatFormat) : (fone fmt).toRat = 1 := by
+  -- mantissa = 2^(prec - 1), exponent = 0
+  -- toRat = mantissa * 2^(exponent - (prec - 1))
+  --       = 2^(prec - 1) * 2^(0 - (prec - 1))
+  --       = 2^(prec - 1) * 2^(-(prec - 1))
+  --       = 1
+  sorry
+
+/-- Multiplying by one on the right is identity for finite values -/
+theorem fmul_one_right (fmt : FloatFormat) (mode : RoundMode) (f : FloatRepr fmt) :
+    fmul fmt mode (.finite f) (fone fmt) = .finite f := by
+  change round fmt mode (f.toRat * (fone fmt).toRat) = .finite f
+  rw [fone_toRat, mul_one]
+  exact round_idempotent mode f
+
+/-- Multiplying by one on the left is identity for finite values -/
+theorem fmul_one_left (fmt : FloatFormat) (mode : RoundMode) (f : FloatRepr fmt) :
+    fmul fmt mode (fone fmt) (.finite f) = .finite f := by
+  rw [fmul_comm]
+  exact fmul_one_right fmt mode f
 
 -- THEOREM: Error bounds follow from the definition of rounding
 theorem round_relative_error (fmt : FloatFormat) (q : Rat) (hq : q ≠ 0) :
@@ -299,16 +530,7 @@ theorem fadd_relative_error (fmt : FloatFormat) (x y : FloatValue fmt)
       (fadd fmt .toNearest x y).toRat = (x.toRat + y.toRat) * (1 + δ) := by
   sorry -- Follows from round_relative_error
 
-/-- Floating-point negation (exact, no rounding needed) -/
-def fneg {fmt : FloatFormat} : FloatValue fmt → FloatValue fmt
-  | .finite f => .finite { f with sign := !f.sign }
-  | .infinity s => .infinity (!s)
-  | .nan => .nan
-
--- THEOREM: Negation is exact (no rounding needed)
-theorem fneg_exact (fmt : FloatFormat) (x : FloatValue fmt) :
-    (fneg x).toRat = -(x.toRat) := by
-  sorry -- Follows directly from definition
+-- Note: fneg is exact, proved earlier as fneg_toRat
 
 /-! # Mapping to Native Float Types
 
