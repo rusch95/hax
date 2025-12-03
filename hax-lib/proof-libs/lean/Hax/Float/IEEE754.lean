@@ -329,14 +329,23 @@ theorem log2Rat_normalized (m : Nat) (e : Int) (prec : Nat)
     set j := ((prec : Int) - e).toNat with hj_def
     have hj_pos : (prec : Int) - e = (j : Int) := by
       simp only [hj_def, Int.toNat_of_nonneg (by omega : 0 ≤ (prec : Int) - e)]
+    have h_j_pos : j > 0 := by omega
     have h_k_neg : e - (prec : Int) = -(j : Int) := by omega
     rw [h_k_neg, zpow_neg, zpow_natCast]
-    -- q = m / 2^j
-    -- The key insight: log2Nat(num) - log2Nat(den) = log2Nat(m) - log2Nat(2^j) + adjustment
-    -- where the adjustment accounts for gcd cancellation
-    -- Since log2Nat(m) = prec and we're removing j powers of 2,
-    -- the net effect is prec - j = e
-    -- This requires a more detailed proof about Rat's internal representation
+    -- q = m / 2^j = m * (1/2^j) = m * (2^j)⁻¹
+    -- The goal is to show log2Nat(num) - log2Nat(den) = prec - j = e
+    --
+    -- Key insight: Let g = gcd(m, 2^j) = 2^(min(t, j)) where t = trailing zeros of m
+    -- Then: num = m / g, den = 2^j / g
+    -- log2Nat(num) - log2Nat(den) = log2Nat(m/g) - log2Nat(2^j/g)
+    --
+    -- Case t >= j: g = 2^j, so num = m/2^j, den = 1
+    --   log2Nat(m/2^j) - 0 = log2Nat(m) - j = prec - j = e ✓
+    -- Case t < j: g = 2^t, so num = m/2^t = m' (odd part), den = 2^(j-t)
+    --   log2Nat(m') - (j-t) = (prec - t) - (j - t) = prec - j = e ✓
+    --
+    -- The formal proof requires lemmas about Rat's internal representation
+    -- and how gcd affects numerator/denominator. This is left as TODO.
     sorry
 
 /-- Round a non-negative rational to a natural number according to rounding mode -/
