@@ -574,11 +574,25 @@ With this constructive approach:
 2. round: Definition of rounding (could be made computable)
 
 **Now Theorems (proved from definitions):**
-- fadd_comm, fmul_comm: Commutativity
-- round_relative_error: Error bounds
-- fadd_relative_error, fmul_relative_error: Operation error bounds
-- fneg_exact: Negation is exact
-- Many identity/monotonicity properties
+- isNaN_nan, isNaN_infinity, isNaN_finite: NaN predicate
+- isInf_nan, isInf_infinity, isInf_finite: Infinity predicate
+- isFinite_nan, isFinite_infinity, isFinite_finite: Finiteness predicate
+- finite_def: Finite characterization
+- toRat_nan, toRat_infinity, toRat_zero: Rational conversion
+- neg_neg: Double negation
+- fneg_toRat: Negation preserves rational value
+- fadd_comm, fmul_comm: Commutativity (fully proved)
+- fadd_zero_left/right: Addition identity (uses round_idempotent axiom)
+- fmul_one_left/right: Multiplication identity (uses round_idempotent axiom)
+- le_refl_finite: Reflexivity for finite values
+- le_trans: Transitivity (outline with sorry)
+- lt_iff_le_not_le: Strict ordering characterization
+
+**Remaining Axioms (with sorry):**
+- round_idempotent: Rounding representable values is idempotent
+- fone_toRat: 1.0 converts to rational 1
+- le_trans: Needs exhaustive case analysis
+- round_relative_error, fadd_relative_error: Error bounds
 
 This dramatically reduces the trusted axiom base while providing
 the same usable properties for verification.
