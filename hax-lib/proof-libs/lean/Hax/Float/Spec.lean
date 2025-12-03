@@ -103,7 +103,9 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α]
   /-- Negation preserves finiteness -/
   is_finite_neg : ∀ x : α, is_finite x → is_finite (-x)
 
-  /-- Multiplication by zero of finite value is zero (and finite) -/
+  /-- Zero times finite value is zero (sound direction of zero product property).
+      Note: The reverse direction is FALSE due to underflow (e.g. 1e-300 * 1e-300 = 0).
+      We only axiomatize the sound direction: if either operand is zero, the product is zero. -/
   mul_zero_finite : ∀ x : α, is_finite x → (0 : α) * x = (0 : α)
 
   /-- Convert to rational (axiomatized, treating NaN/Inf as 0) -/
@@ -135,10 +137,6 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α]
 
   /-- Multiplication identity (left) -/
   mul_one_left : ∀ x : α, 1 * x = x
-
-  /-- Zero product property (for finite values only - fails for NaN and underflow) -/
-  mul_eq_zero : ∀ x y : α, is_finite x → is_finite y → is_finite (x * y) →
-    (x * y = (0 : α) ↔ x = (0 : α) ∨ y = (0 : α))
 
   /-- Addition monotonicity (left) - requires finite z to avoid NaN -/
   add_monotonic_left : ∀ x y z : α, is_finite z → x ≤ y → x + z ≤ y + z
@@ -188,12 +186,20 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α]
   /-- Division by self (for finite non-zero values - fails for Inf and NaN) -/
   div_self : ∀ x : α, is_finite x → x ≠ (0 : α) → x / x = (1 : α)
 
-  /-- Multiplication-division cancellation (requires no overflow in x*y) -/
+  /-- Multiplication-division cancellation (requires EXACT multiplication).
+      Note: This only holds when x * y is computed exactly (no rounding).
+      The precondition `to_rat (x * y) = to_rat x * to_rat y` ensures exactness.
+      For inexact multiplication, use error bounds instead. -/
   mul_div_cancel : ∀ x y : α, is_finite x → is_finite y → is_finite (x * y) →
+    to_rat (x * y) = to_rat x * to_rat y →  -- exactness precondition
     y ≠ (0 : α) → (x * y) / y = x
 
-  /-- Division-multiplication cancellation (requires no underflow in x/y) -/
+  /-- Division-multiplication cancellation (requires EXACT division).
+      Note: This only holds when x / y is computed exactly (no rounding).
+      The precondition `to_rat (x / y) = to_rat x / to_rat y` ensures exactness.
+      For inexact division, use error bounds instead. -/
   div_mul_cancel : ∀ x y : α, is_finite x → is_finite y → is_finite (x / y) →
+    to_rat (x / y) = to_rat x / to_rat y →  -- exactness precondition
     y ≠ (0 : α) → (x / y) * y = x
 
   /-- Addition relative error bound (for finite inputs with finite result) -/
@@ -465,8 +471,10 @@ theorem sub_relative_error (x y : α)
 
 /-! ## Sign Properties -/
 
--- Positive * positive = positive (for finite positive values)
-theorem mul_sign_pos (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y) (hxy_fin : is_finite (x * y)) :
+-- Positive * positive = positive (for finite positive values with non-zero product)
+-- Note: Requires x * y ≠ 0 to rule out underflow (e.g. 1e-200 * 1e-200 = 0)
+theorem mul_sign_pos (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y)
+    (hxy_fin : is_finite (x * y)) (hxy_ne_zero : x * y ≠ (0 : α)) :
   (0 : α) < x → (0 : α) < y → (0 : α) < x * y := by
   intro hx hy
   -- Show 0 * y < x * y, and since 0 * y = 0, we're done
@@ -480,24 +488,14 @@ theorem mul_sign_pos (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y) (h
       -- We have 0 * y ≤ x * y and x * y ≤ 0 * y, so x * y = 0 * y = 0
       have h_eq : x * y = 0 * y := le_antisymm (x * y) (0 * y) h_contra (mul_monotonic_pos 0 x y hy (by rw [lt_iff_le_not_le] at hx; exact hx.1))
       rw [mul_zero_left y hy_fin] at h_eq
-      -- By mul_eq_zero, x * y = 0 implies x = 0 or y = 0
-      rw [mul_eq_zero x y hx_fin hy_fin hxy_fin] at h_eq
-      cases h_eq with
-      | inl hx_zero =>
-        -- x = 0 contradicts 0 < x
-        rw [hx_zero] at hx
-        rw [lt_iff_le_not_le] at hx
-        exact hx.2 (le_refl 0 is_finite_zero)
-      | inr hy_zero =>
-        -- y = 0 contradicts 0 < y
-        rw [hy_zero] at hy
-        rw [lt_iff_le_not_le] at hy
-        exact hy.2 (le_refl 0 is_finite_zero)
+      -- But x * y ≠ 0 by hypothesis
+      exact hxy_ne_zero h_eq
   rw [mul_zero_left y hy_fin] at h
   exact h
 
--- Negative * negative = positive (for finite values)
-theorem mul_sign_neg (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y) (hxy_fin : is_finite (x * y)) :
+-- Negative * negative = positive (for finite values with non-zero product)
+theorem mul_sign_neg (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y)
+    (hxy_fin : is_finite (x * y)) (hxy_ne_zero : x * y ≠ (0 : α)) :
   x < (0 : α) → y < (0 : α) → (0 : α) < x * y := by
   intro hx hy
   -- From x < 0, get 0 < -x
@@ -525,7 +523,7 @@ theorem mul_sign_neg (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y) (h
   -- -x and -y are finite since x and y are finite
   have hx_neg_fin : is_finite (-x) := is_finite_neg x hx_fin
   have hy_neg_fin : is_finite (-y) := is_finite_neg y hy_fin
-  -- (-x) * (-y) = x * y, so product is finite
+  -- (-x) * (-y) = x * y, so product is finite and non-zero
   have h_eq : (-x) * (-y) = x * y := by
     have step1 : (-x) * (-y) = -(x * (-y)) := neg_mul x (-y)
     have step2 : x * (-y) = -(x * y) := by
@@ -537,13 +535,16 @@ theorem mul_sign_neg (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y) (h
       _ = x * y := neg_exact (x * y)
   have hxy_neg_fin : is_finite ((-x) * (-y)) := by
     rw [h_eq]; exact hxy_fin
+  have hxy_neg_ne_zero : (-x) * (-y) ≠ (0 : α) := by
+    rw [h_eq]; exact hxy_ne_zero
   -- By mul_sign_pos: 0 < (-x) * (-y)
-  have h_prod : 0 < (-x) * (-y) := mul_sign_pos (-x) (-y) hx_neg_fin hy_neg_fin hxy_neg_fin h_neg_x h_neg_y
+  have h_prod : 0 < (-x) * (-y) := mul_sign_pos (-x) (-y) hx_neg_fin hy_neg_fin hxy_neg_fin hxy_neg_ne_zero h_neg_x h_neg_y
   rw [← h_eq]
   exact h_prod
 
--- Positive * negative = negative (for finite values)
-theorem mul_sign_mixed (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y) (hxy_fin : is_finite (x * y)) :
+-- Positive * negative = negative (for finite values with non-zero product)
+theorem mul_sign_mixed (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y)
+    (hxy_fin : is_finite (x * y)) (hxy_ne_zero : x * y ≠ (0 : α)) :
   (0 : α) < x → y < (0 : α) → x * y < (0 : α) := by
   intro hx hy
   -- From y < 0, get 0 < -y
@@ -558,15 +559,22 @@ theorem mul_sign_mixed (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y) 
       exact hy.2 this
   -- -y is finite since y is finite
   have hy_neg_fin : is_finite (-y) := is_finite_neg y hy_fin
-  -- x * (-y) = -(x * y), so x * (-y) is finite
+  -- x * (-y) = -(x * y), so x * (-y) is finite and non-zero
   have h_eq : x * (-y) = -(x * y) := by
     calc x * (-y) = (-y) * x := mul_comm x (-y)
       _ = -(y * x) := neg_mul y x
       _ = -(x * y) := by rw [mul_comm y x]
   have hxy_neg_fin' : is_finite (x * (-y)) := by
     rw [h_eq]; exact is_finite_neg (x * y) hxy_fin
+  have hxy_neg_ne_zero : x * (-y) ≠ (0 : α) := by
+    rw [h_eq]
+    intro h_contra
+    -- If -(x * y) = 0, then x * y = -0 = 0
+    have : x * y = -0 := by rw [← h_contra]; exact (neg_exact (x * y)).symm
+    rw [neg_zero] at this
+    exact hxy_ne_zero this
   -- By mul_sign_pos: 0 < x * (-y)
-  have h_prod : 0 < x * (-y) := mul_sign_pos x (-y) hx_fin hy_neg_fin hxy_neg_fin' hx h_neg_y
+  have h_prod : 0 < x * (-y) := mul_sign_pos x (-y) hx_fin hy_neg_fin hxy_neg_fin' hxy_neg_ne_zero hx h_neg_y
   -- So 0 < -(x * y), which means x * y < 0
   rw [h_eq] at h_prod
   -- Need to show: 0 < -(x * y) implies x * y < 0
@@ -718,40 +726,42 @@ noncomputable abbrev f64_div_relative_error := FloatSpec.div_relative_error (α 
 This module provides a complete formal foundation for IEEE 754 floating-point
 arithmetic based on the NASA paper, extended with error bounds from Flean.
 
-**Axiomatic base (27 core axioms in FloatSpec + 2 instance axioms = 29 total):**
-1. **Conversion**: to_rat_zero, to_rat_inj, to_rat_neg (3)
-2. **Commutativity**: Addition and multiplication (2)
-3. **Identity Elements**: add_zero_left, mul_one_left, mul_eq_zero (3)
-4. **Monotonicity**: add_monotonic_left, mul_monotonic_pos, div_monotonic_num, div_antimonotonic_den (4)
-5. **Sterbenz Lemma**: Exact subtraction for nearby values (1)
-6. **Negation/Subtraction**: neg_exact, neg_mul, neg_le_neg, sub_eq_add_neg, add_neg_self (5)
-7. **Ordering**: Transitivity, antisymmetry, totality, lt_iff_le_not_le (4)
-8. **Inverse Relations**: div_self, mul_div_cancel, div_mul_cancel (3)
-9. **Error Bounds**: Relative error ≤ ε/2 for add, mul, div (3)
+**Axiomatic base (36 core axioms in FloatSpec + 2 instance axioms = 38 total):**
+1. **Special Values**: nan, infinity, is_nan, is_inf, is_finite + properties (8)
+2. **Finiteness**: is_finite_zero, is_finite_one, is_finite_neg (3)
+3. **Conversion**: to_rat, to_rat_nan, to_rat_inf, to_rat_zero, to_rat_inj, to_rat_neg (6)
+4. **Commutativity**: add_comm, mul_comm (2)
+5. **Identity Elements**: add_zero_left, mul_one_left, mul_zero_finite (3)
+6. **Monotonicity**: add_monotonic_left, mul_monotonic_pos, div_monotonic_num, div_antimonotonic_den (4)
+7. **Sterbenz Lemma**: Exact subtraction for nearby values (1)
+8. **Negation/Subtraction**: neg_exact, neg_mul, neg_le_neg, sub_eq_add_neg, add_neg_self (5)
+9. **Ordering**: le_trans, le_antisymm, le_total, lt_iff_le_not_le (4)
+10. **Inverse Relations**: div_self, mul_div_cancel, div_mul_cancel (3)
+    - Note: Cancellation requires exactness preconditions (no rounding)
+11. **Error Bounds**: add/mul/div_relative_error with |δ| ≤ ε/2 (3)
 
 **Derived theorems (17+ theorems):**
 - Rounding properties (4 theorems) - trivial since already rounded
 - Right-hand identities (3 theorems) from commutativity
 - Right-hand monotonicity (1 theorem) from commutativity
-- **mul_zero_left** from mul_eq_zero (zero product property)
+- **mul_zero_left/right** from mul_zero_finite
 - **sub_monotonic** from add_monotonic_left + neg_le_neg
 - **mul_antimonotonic_neg** from mul_monotonic_pos + neg_le_neg + neg_mul
 - Compatibility axioms (2 theorems) from monotonicity + transitivity
 - Subtraction error (1 theorem) from addition error + to_rat_neg
-- Sign properties (3+ theorems) from monotonicity + negation
+- Sign properties (3 theorems) with non-zero product precondition
 - Helper theorems: le_refl, lt_of_le_of_ne, lt_of_le_of_not_eq, neg_zero
 
 **Key constants:**
 - f32_epsilon = 2^(-23) ≈ 1.19e-7
 - f64_epsilon = 2^(-52) ≈ 2.22e-16
 
-**Reduction from previous version:**
-- Before: 72 axioms (36 for f32 + 36 for f64)
-- After: 29 axioms (27 typeclass axioms + 2 instances)
-- Reduction: 60% fewer axioms via typeclass unification + derivation
-
-Note: Associativity is intentionally NOT included, as floating-point arithmetic
-is not associative due to rounding effects.
+**Soundness notes:**
+- The reverse zero product property (x * y = 0 → x = 0 ∨ y = 0) is NOT included
+  because it fails for underflow (e.g., 1e-300 * 1e-300 = 0)
+- Cancellation axioms require exactness preconditions to be sound
+- Sign theorems require non-zero product to rule out underflow
+- Associativity is NOT included (floating-point is not associative)
 
 These axioms enable formal verification of floating-point algorithms extracted
 by hax, with guarantees matching IEEE 754 semantics and quantitative error bounds
