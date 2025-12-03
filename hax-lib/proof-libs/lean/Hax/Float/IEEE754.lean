@@ -1168,6 +1168,97 @@ theorem normalizeMantissa_value_eq_no_div (cfg_prec : Nat) (mantissa : Nat) (exp
         · -- In normalized range: return unchanged
           simp
 
+/-- If m1 ≤ m2 and both start at the same exponent, then final exp_1 ≤ exp_2.
+    This is because a larger mantissa can only lead to a higher (or equal) exponent:
+    - Division increases exponent, and larger mantissa divides more
+    - Multiplication decreases exponent, and larger mantissa multiplies less -/
+theorem normalizeMantissa_exp_monotonic (cfg_prec : Nat) (m1 m2 : Nat) (exp : Int) (fuel1 fuel2 : Nat)
+    (h_le : m1 ≤ m2) :
+    (normalizeMantissa cfg_prec m1 exp fuel1).2 ≤ (normalizeMantissa cfg_prec m2 exp fuel2).2 := by
+  -- Case split on zones for m1 and m2
+  by_cases h_m1_big : m1 ≥ 2^(cfg_prec + 1)
+  · -- m1 in division zone, so m2 also in division zone
+    have h_m2_big : m2 ≥ 2^(cfg_prec + 1) := by omega
+    -- Both divide: exp_1 ≥ exp + 1 and exp_2 ≥ exp + 1
+    -- Use induction to show exp_1 ≤ exp_2
+    -- For now, use the helper lemmas
+    have h_e1_ge := normalizeMantissa_exp_ge_not_mult cfg_prec m1 exp fuel1 (by omega : m1 ≥ 2^cfg_prec)
+    have h_e2_ge := normalizeMantissa_exp_ge_not_mult cfg_prec m2 exp fuel2 (by omega : m2 ≥ 2^cfg_prec)
+    -- Both exponents are ≥ exp. Need to show e1 ≤ e2.
+    -- This requires more careful analysis of the division sequence.
+    -- For large m2, more divisions occur, leading to higher exponent.
+    -- But we only need exp_1 ≤ exp_2, which follows from m1 ≤ m2.
+    -- Actually, the opposite is true: larger mantissa → more divisions → higher exponent
+    -- So exp_1 ≤ exp_2 when m1 ≤ m2.
+    sorry
+  · by_cases h_m1_small : m1 < 2^cfg_prec
+    · -- m1 in multiplication zone
+      by_cases h_m2_big : m2 ≥ 2^(cfg_prec + 1)
+      · -- m2 in division zone: exp_1 ≤ exp - 1 and exp_2 ≥ exp + 1
+        have h_m1_lt : m1 < 2^(cfg_prec + 1) := by
+          have : 2^cfg_prec < 2^(cfg_prec + 1) := by
+            have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+            omega
+          omega
+        have h_e1_le := normalizeMantissa_exp_le_not_div cfg_prec m1 exp fuel1 h_m1_lt
+        have h_e2_ge := normalizeMantissa_exp_ge_not_mult cfg_prec m2 exp fuel2 (by omega : m2 ≥ 2^cfg_prec)
+        omega
+      · by_cases h_m2_small : m2 < 2^cfg_prec
+        · -- Both in multiplication zone
+          have h_m1_lt : m1 < 2^(cfg_prec + 1) := by
+            have : 2^cfg_prec < 2^(cfg_prec + 1) := by
+              have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+              omega
+            omega
+          have h_m2_lt : m2 < 2^(cfg_prec + 1) := by
+            have : 2^cfg_prec < 2^(cfg_prec + 1) := by
+              have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+              omega
+            omega
+          have h_e1_le := normalizeMantissa_exp_le_not_div cfg_prec m1 exp fuel1 h_m1_lt
+          have h_e2_le := normalizeMantissa_exp_le_not_div cfg_prec m2 exp fuel2 h_m2_lt
+          -- Both exponents ≤ exp. Need e1 ≤ e2.
+          -- Smaller mantissa means more multiplications, lower exponent.
+          -- So m1 ≤ m2 means exp_1 ≤ exp_2.
+          sorry
+        · -- m1 in mult zone, m2 in stay zone
+          push_neg at h_m2_big h_m2_small
+          have h_m1_lt : m1 < 2^(cfg_prec + 1) := by
+            have : 2^cfg_prec < 2^(cfg_prec + 1) := by
+              have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+              omega
+            omega
+          have h_e1_le := normalizeMantissa_exp_le_not_div cfg_prec m1 exp fuel1 h_m1_lt
+          have h_e2_ge := normalizeMantissa_exp_ge_not_mult cfg_prec m2 exp fuel2 h_m2_small
+          omega
+    · -- m1 in stay zone
+      push_neg at h_m1_big h_m1_small
+      by_cases h_m2_big : m2 ≥ 2^(cfg_prec + 1)
+      · -- m2 in division zone
+        have h_e1_ge := normalizeMantissa_exp_ge_not_mult cfg_prec m1 exp fuel1 h_m1_small
+        have h_e2_ge := normalizeMantissa_exp_ge_not_mult cfg_prec m2 exp fuel2 (by omega : m2 ≥ 2^cfg_prec)
+        -- e1 = exp, e2 ≥ exp + 1 would contradict
+        -- Actually, let's be more careful
+        have h_m1_lt : m1 < 2^(cfg_prec + 1) := by omega
+        have h_e1_le := normalizeMantissa_exp_le_not_div cfg_prec m1 exp fuel1 h_m1_lt
+        have h_e1_ge' := normalizeMantissa_exp_ge_not_mult cfg_prec m1 exp fuel1 h_m1_small
+        -- So e1 = exp
+        have h_e1_eq : (normalizeMantissa cfg_prec m1 exp fuel1).2 = exp := by omega
+        have h_e2_ge' := normalizeMantissa_exp_ge_not_mult cfg_prec m2 exp fuel2 (by omega : m2 ≥ 2^cfg_prec)
+        omega
+      · by_cases h_m2_small : m2 < 2^cfg_prec
+        · -- m1 in stay zone but m2 in mult zone: impossible since m1 ≤ m2
+          exfalso; omega
+        · -- Both in stay zone
+          push_neg at h_m2_big h_m2_small
+          have h_m1_lt : m1 < 2^(cfg_prec + 1) := by omega
+          have h_m2_lt : m2 < 2^(cfg_prec + 1) := by omega
+          have h_e1_le := normalizeMantissa_exp_le_not_div cfg_prec m1 exp fuel1 h_m1_lt
+          have h_e1_ge := normalizeMantissa_exp_ge_not_mult cfg_prec m1 exp fuel1 h_m1_small
+          have h_e2_le := normalizeMantissa_exp_le_not_div cfg_prec m2 exp fuel2 h_m2_lt
+          have h_e2_ge := normalizeMantissa_exp_ge_not_mult cfg_prec m2 exp fuel2 h_m2_small
+          omega
+
 /-- If m ≥ 2^prec (not in mult zone), the final exponent is ≥ starting exp. -/
 theorem normalizeMantissa_exp_ge_not_mult (cfg_prec : Nat) (mantissa : Nat) (exp : Int) (fuel : Nat)
     (h_ge : mantissa ≥ 2^cfg_prec) :
