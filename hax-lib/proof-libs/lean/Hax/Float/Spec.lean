@@ -94,6 +94,18 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α]
   /-- Finite definition -/
   finite_def : ∀ x : α, is_finite x ↔ ¬ is_nan x ∧ ¬ is_inf x
 
+  /-- Zero is finite -/
+  is_finite_zero : is_finite (0 : α)
+
+  /-- One is finite -/
+  is_finite_one : is_finite (1 : α)
+
+  /-- Negation preserves finiteness -/
+  is_finite_neg : ∀ x : α, is_finite x → is_finite (-x)
+
+  /-- Multiplication by zero of finite value is zero (and finite) -/
+  mul_zero_finite : ∀ x : α, is_finite x → (0 : α) * x = (0 : α)
+
   /-- Convert to rational (axiomatized, treating NaN/Inf as 0) -/
   to_rat : α → Rat
 
@@ -124,11 +136,12 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α]
   /-- Multiplication identity (left) -/
   mul_one_left : ∀ x : α, 1 * x = x
 
-  /-- Zero product property -/
-  mul_eq_zero : ∀ x y : α, x * y = (0 : α) ↔ x = (0 : α) ∨ y = (0 : α)
+  /-- Zero product property (for finite values only - fails for NaN and underflow) -/
+  mul_eq_zero : ∀ x y : α, is_finite x → is_finite y → is_finite (x * y) →
+    (x * y = (0 : α) ↔ x = (0 : α) ∨ y = (0 : α))
 
-  /-- Addition monotonicity (left) -/
-  add_monotonic_left : ∀ x y z : α, x ≤ y → x + z ≤ y + z
+  /-- Addition monotonicity (left) - requires finite z to avoid NaN -/
+  add_monotonic_left : ∀ x y z : α, is_finite z → x ≤ y → x + z ≤ y + z
 
   /-- Multiplication monotonicity (positive) -/
   mul_monotonic_pos : ∀ x y z : α, (0 : α) < z → x ≤ y → x * z ≤ y * z
@@ -157,8 +170,8 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α]
   /-- Subtraction as addition of negation -/
   sub_eq_add_neg : ∀ x y : α, x - y = x + (-y)
 
-  /-- Additive inverse -/
-  add_neg_self : ∀ x : α, x + (-x) = (0 : α)
+  /-- Additive inverse (for finite values - fails for Inf and NaN) -/
+  add_neg_self : ∀ x : α, is_finite x → x + (-x) = (0 : α)
 
   /-- Ordering transitivity -/
   le_trans : ∀ x y z : α, x ≤ y → y ≤ z → x ≤ z
@@ -166,33 +179,36 @@ class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α]
   /-- Ordering antisymmetry -/
   le_antisymm : ∀ x y : α, x ≤ y → y ≤ x → x = y
 
-  /-- Ordering totality -/
-  le_total : ∀ x y : α, x ≤ y ∨ y ≤ x
+  /-- Ordering totality (for finite values - NaN is unordered) -/
+  le_total : ∀ x y : α, is_finite x → is_finite y → (x ≤ y ∨ y ≤ x)
 
   /-- Strict ordering characterization -/
   lt_iff_le_not_le : ∀ x y : α, x < y ↔ (x ≤ y ∧ ¬(y ≤ x))
 
-  /-- Division by self -/
-  div_self : ∀ x : α, x ≠ (0 : α) → x / x = (1 : α)
+  /-- Division by self (for finite non-zero values - fails for Inf and NaN) -/
+  div_self : ∀ x : α, is_finite x → x ≠ (0 : α) → x / x = (1 : α)
 
-  /-- Multiplication-division cancellation -/
-  mul_div_cancel : ∀ x y : α, y ≠ (0 : α) → (x * y) / y = x
+  /-- Multiplication-division cancellation (requires no overflow in x*y) -/
+  mul_div_cancel : ∀ x y : α, is_finite x → is_finite y → is_finite (x * y) →
+    y ≠ (0 : α) → (x * y) / y = x
 
-  /-- Division-multiplication cancellation -/
-  div_mul_cancel : ∀ x y : α, y ≠ (0 : α) → (x / y) * y = x
+  /-- Division-multiplication cancellation (requires no underflow in x/y) -/
+  div_mul_cancel : ∀ x y : α, is_finite x → is_finite y → is_finite (x / y) →
+    y ≠ (0 : α) → (x / y) * y = x
 
-  /-- Addition relative error bound -/
-  add_relative_error : ∀ x y : α,
+  /-- Addition relative error bound (for finite inputs with finite result) -/
+  add_relative_error : ∀ x y : α, is_finite x → is_finite y → is_finite (x + y) →
     ∃ δ : Rat, Rat.abs δ ≤ Rat.divPow2 epsilon 1 ∧
       to_rat (x + y) = (to_rat x + to_rat y) * (1 + δ)
 
-  /-- Multiplication relative error bound -/
-  mul_relative_error : ∀ x y : α,
+  /-- Multiplication relative error bound (for finite inputs with finite result) -/
+  mul_relative_error : ∀ x y : α, is_finite x → is_finite y → is_finite (x * y) →
     ∃ δ : Rat, Rat.abs δ ≤ Rat.divPow2 epsilon 1 ∧
       to_rat (x * y) = (to_rat x * to_rat y) * (1 + δ)
 
-  /-- Division relative error bound -/
-  div_relative_error : ∀ x y : α, y ≠ (0 : α) →
+  /-- Division relative error bound (for finite inputs with finite result) -/
+  div_relative_error : ∀ x y : α, is_finite x → is_finite y → is_finite (x / y) →
+    y ≠ (0 : α) →
     ∃ δ : Rat, Rat.abs δ ≤ Rat.divPow2 epsilon 1 ∧
       to_rat (x / y) = (to_rat x / to_rat y) * (1 + δ)
 
@@ -241,44 +257,43 @@ theorem add_zero_right (x : α) : x + 0 = x := by
 theorem mul_one_right (x : α) : x * 1 = x := by
   rw [mul_comm]; exact mul_one_left x
 
--- Multiplication by zero (derived from mul_eq_zero)
-theorem mul_zero_left (x : α) : 0 * x = 0 := by
-  -- Use mul_eq_zero backward: x * y = 0 ← x = 0 ∨ y = 0
-  -- Setting x = 0: 0 * y = 0 ← 0 = 0 ∨ y = 0, which holds by Or.inl rfl
-  exact (mul_eq_zero 0 x).mpr (Or.inl rfl)
+-- Multiplication by zero needs finite precondition (0 * Inf = NaN, 0 * NaN = NaN)
+theorem mul_zero_left (x : α) (hx : is_finite x) : 0 * x = 0 :=
+  mul_zero_finite x hx
 
-theorem mul_zero_right (x : α) : x * 0 = 0 := by
-  rw [mul_comm]; exact mul_zero_left x
+theorem mul_zero_right (x : α) (hx : is_finite x) : x * 0 = 0 := by
+  rw [mul_comm]; exact mul_zero_left x hx
 
+-- neg_zero: 0 is finite, so we can use add_neg_self
 theorem neg_zero : -((0 : α)) = (0 : α) := by
-  have h : (0 : α) + (-(0 : α)) = (0 : α) := add_neg_self (0 : α)
+  have h : (0 : α) + (-(0 : α)) = (0 : α) := add_neg_self (0 : α) is_finite_zero
   rw [add_zero_left] at h
   exact h
 
 /-! ## Right-hand Monotonicity from Commutativity -/
 
-theorem add_monotonic_right (x y z : α) : x ≤ y → z + x ≤ z + y := by
+theorem add_monotonic_right (x y z : α) (hz : is_finite z) : x ≤ y → z + x ≤ z + y := by
   intro h
   rw [add_comm z x, add_comm z y]
-  exact add_monotonic_left x y z h
+  exact add_monotonic_left x y z hz h
 
 /-! ## Compatibility Axioms Derived from Monotonicity -/
 
-theorem add_le_add (a b c d : α) : a ≤ b → c ≤ d → a + c ≤ b + d := by
+theorem add_le_add (a b c d : α) (hc : is_finite c) (hb : is_finite b) :
+    a ≤ b → c ≤ d → a + c ≤ b + d := by
   intro hab hcd
-  have h1 := add_monotonic_left a b c hab
-  have h2 := add_monotonic_right c d b hcd
+  have h1 := add_monotonic_left a b c hc hab
+  have h2 := add_monotonic_right c d b hb hcd
   exact le_trans (a + c) (b + c) (b + d) h1 h2
 
 -- Subtraction anti-monotonicity (derived from add_monotonic_left and neg_le_neg)
-theorem sub_monotonic (x y z : α) : x ≤ y → z - y ≤ z - x := by
+theorem sub_monotonic (x y z : α) (hx_fin : is_finite x) (hy_fin : is_finite y) (hz_fin : is_finite z) :
+    x ≤ y → z - y ≤ z - x := by
   intro hxy
-  -- z - y = z + (-y) and z - x = z + (-x)
   rw [sub_eq_add_neg, sub_eq_add_neg]
-  -- From x ≤ y, get -y ≤ -x
   have h_neg : -y ≤ -x := (neg_le_neg x y).mp hxy
-  -- Apply add_monotonic_right
-  exact add_monotonic_right (-y) (-x) z h_neg
+  have hy_neg_fin : is_finite (-y) := is_finite_neg y hy_fin
+  exact add_monotonic_right (-y) (-x) z hz_fin h_neg
 
 -- Multiplication anti-monotonicity for negative multipliers (derived from mul_monotonic_pos)
 theorem mul_antimonotonic_neg (x y z : α) : z < (0 : α) → x ≤ y → y * z ≤ x * z := by
@@ -308,9 +323,9 @@ theorem mul_antimonotonic_neg (x y z : α) : z < (0 : α) → x ≤ y → y * z 
   rw [hx, hy] at h_prod
   exact (neg_le_neg (y * z) (x * z)).mpr h_prod
 
--- Helper: reflexivity of ≤
-theorem le_refl (x : α) : x ≤ x := by
-  cases le_total x x with
+-- Helper: reflexivity of ≤ (for finite values - NaN ≤ NaN is false)
+theorem le_refl (x : α) (hx : is_finite x) : x ≤ x := by
+  cases le_total x x hx hx with
   | inl h => exact h
   | inr h => exact h
 
@@ -329,11 +344,14 @@ theorem lt_of_le_of_not_eq (x y : α) : x ≤ y → x ≠ y → x < y := by
     have : x = y := le_antisymm x y hle hyx
     exact absurd this hne
 
--- Contrapositive of mul_monotonic_pos: cancellation law
-theorem mul_lt_mul_of_pos_right (x y z : α) : (0 : α) < z → x * z < y * z → x < y := by
+-- Contrapositive of mul_monotonic_pos: cancellation law (for finite values and products)
+theorem mul_lt_mul_of_pos_right (x y z : α)
+    (hx : is_finite x) (hy : is_finite y)
+    (hxz_fin : is_finite (x * z)) (hyz_fin : is_finite (y * z)) :
+    (0 : α) < z → x * z < y * z → x < y := by
   intro hz hlt
   -- Use le_total to split on x ≤ y vs y ≤ x
-  cases le_total x y with
+  cases le_total x y hx hy with
   | inl hxy =>
     -- Case: x ≤ y. Need to show ¬(y ≤ x) to get x < y
     rw [lt_iff_le_not_le]
@@ -347,7 +365,7 @@ theorem mul_lt_mul_of_pos_right (x y z : α) : (0 : α) < z → x * z < y * z �
       -- But if x = y, then y * z ≤ x * z
       have h_contra : y * z ≤ x * z := by
         calc y * z = x * z := by rw [← heq]
-          _ ≤ x * z := le_refl (x * z)
+          _ ≤ x * z := le_refl (x * z) hxz_fin
       exact hlt.2 h_contra
   | inr hyx =>
     -- Case: y ≤ x. This leads to contradiction
@@ -357,15 +375,16 @@ theorem mul_lt_mul_of_pos_right (x y z : α) : (0 : α) < z → x * z < y * z �
     rw [lt_iff_le_not_le] at hlt
     exact absurd this hlt.2
 
--- mul_le_mul: multiply inequalities with non-negative bounds
+-- mul_le_mul: multiply inequalities with non-negative finite bounds
 -- Strategy: a * c ≤ b * c ≤ b * d via two applications of mul_monotonic_pos
-theorem mul_le_mul (a b c d : α) :
+theorem mul_le_mul (a b c d : α)
+  (ha_fin : is_finite a) (hb_fin : is_finite b) (hc_fin : is_finite c) (hd_fin : is_finite d) :
   (0 : α) ≤ a → a ≤ b → (0 : α) ≤ c → c ≤ d → a * c ≤ b * d := by
   intro ha0 hab hc0 hcd
   -- Case split on whether c = 0
   by_cases hc_eq : c = (0 : α)
   · -- Case: c = 0, so a * c = 0
-    rw [hc_eq, mul_zero_right]
+    rw [hc_eq, mul_zero_right a ha_fin]
     -- Need to show 0 ≤ b * d
     -- We have 0 = c ≤ d, so 0 ≤ d
     have hd0 : 0 ≤ d := by
@@ -374,21 +393,21 @@ theorem mul_le_mul (a b c d : α) :
     -- Case split on whether d = 0
     by_cases hd_eq : d = (0 : α)
     · -- d = 0, so b * d = 0
-      rw [hd_eq, mul_zero_right]
-      exact le_refl 0
+      rw [hd_eq, mul_zero_right b hb_fin]
+      exact le_refl 0 is_finite_zero
     · -- d > 0
       have hd_pos : 0 < d := lt_of_le_of_not_eq 0 d hd0 (Ne.symm hd_eq)
       -- We have 0 ≤ a ≤ b, so 0 ≤ b
       have hb0 : 0 ≤ b := le_trans 0 a b ha0 hab
       -- Case split on whether b = 0
       by_cases hb_eq : b = (0 : α)
-      · rw [hb_eq, mul_zero_left]
-        exact le_refl 0
+      · rw [hb_eq, mul_zero_left d hd_fin]
+        exact le_refl 0 is_finite_zero
       · -- b > 0, so 0 < b and 0 < d
         have hb_pos : 0 < b := lt_of_le_of_not_eq 0 b hb0 (Ne.symm hb_eq)
         -- By mul_monotonic_pos: 0 ≤ b and 0 < d implies 0 * d ≤ b * d
         have : 0 * d ≤ b * d := mul_monotonic_pos 0 b d hd_pos hb0
-        rw [mul_zero_left] at this
+        rw [mul_zero_left d hd_fin] at this
         exact this
   · -- Case: c > 0
     have hc_pos : 0 < c := lt_of_le_of_not_eq 0 c hc0 (Ne.symm hc_eq)
@@ -404,9 +423,9 @@ theorem mul_le_mul (a b c d : α) :
       have h1_simplified : a * c ≤ 0 := by
         calc a * c ≤ b * c := h1
           _ = 0 * c := by rw [hb_eq]
-          _ = 0 := mul_zero_left c
+          _ = 0 := mul_zero_left c hc_fin
       calc a * c ≤ 0 := h1_simplified
-        _ = 0 * d := by rw [mul_zero_left]
+        _ = 0 * d := by rw [mul_zero_left d hd_fin]
         _ = b * d := by rw [← hb_eq]
     · -- b > 0
       have hb_pos : 0 < b := lt_of_le_of_not_eq 0 b hb0 (Ne.symm hb_eq)
@@ -422,14 +441,20 @@ theorem mul_le_mul (a b c d : α) :
 
 /-! ## Subtraction Error from Addition Error -/
 
--- Subtraction has same relative error bound as addition
-theorem sub_relative_error (x y : α) :
+-- Subtraction has same relative error bound as addition (for finite inputs with finite result)
+theorem sub_relative_error (x y : α)
+  (hx_fin : is_finite x) (hy_fin : is_finite y) (hxy_fin : is_finite (x - y)) :
   ∃ δ : Rat, Rat.abs δ ≤ Rat.divPow2 (FloatSpec.epsilon (α := α)) 1 ∧
     to_rat (x - y) = (to_rat x - to_rat y) * (1 + δ) := by
   -- Use sub_eq_add_neg: x - y = x + (-y)
   have h_sub : x - y = x + (-y) := sub_eq_add_neg x y
+  -- -y is finite since y is finite
+  have hy_neg_fin : is_finite (-y) := is_finite_neg y hy_fin
+  -- x + (-y) is finite since x - y is finite
+  have h_add_fin : is_finite (x + (-y)) := by
+    rw [← h_sub]; exact hxy_fin
   -- Apply add_relative_error to x + (-y)
-  obtain ⟨δ, h_bound, h_add⟩ := add_relative_error x (-y)
+  obtain ⟨δ, h_bound, h_add⟩ := add_relative_error x (-y) hx_fin hy_neg_fin h_add_fin
   exists δ
   constructor
   · exact h_bound
@@ -440,8 +465,8 @@ theorem sub_relative_error (x y : α) :
 
 /-! ## Sign Properties -/
 
--- Positive * positive = positive
-theorem mul_sign_pos (x y : α) :
+-- Positive * positive = positive (for finite positive values)
+theorem mul_sign_pos (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y) (hxy_fin : is_finite (x * y)) :
   (0 : α) < x → (0 : α) < y → (0 : α) < x * y := by
   intro hx hy
   -- Show 0 * y < x * y, and since 0 * y = 0, we're done
@@ -454,25 +479,25 @@ theorem mul_sign_pos (x y : α) :
       intro h_contra
       -- We have 0 * y ≤ x * y and x * y ≤ 0 * y, so x * y = 0 * y = 0
       have h_eq : x * y = 0 * y := le_antisymm (x * y) (0 * y) h_contra (mul_monotonic_pos 0 x y hy (by rw [lt_iff_le_not_le] at hx; exact hx.1))
-      rw [mul_zero_left] at h_eq
+      rw [mul_zero_left y hy_fin] at h_eq
       -- By mul_eq_zero, x * y = 0 implies x = 0 or y = 0
-      rw [mul_eq_zero] at h_eq
+      rw [mul_eq_zero x y hx_fin hy_fin hxy_fin] at h_eq
       cases h_eq with
       | inl hx_zero =>
         -- x = 0 contradicts 0 < x
         rw [hx_zero] at hx
         rw [lt_iff_le_not_le] at hx
-        exact hx.2 (le_refl 0)
+        exact hx.2 (le_refl 0 is_finite_zero)
       | inr hy_zero =>
         -- y = 0 contradicts 0 < y
         rw [hy_zero] at hy
         rw [lt_iff_le_not_le] at hy
-        exact hy.2 (le_refl 0)
-  rw [mul_zero_left] at h
+        exact hy.2 (le_refl 0 is_finite_zero)
+  rw [mul_zero_left y hy_fin] at h
   exact h
 
--- Negative * negative = positive
-theorem mul_sign_neg (x y : α) :
+-- Negative * negative = positive (for finite values)
+theorem mul_sign_neg (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y) (hxy_fin : is_finite (x * y)) :
   x < (0 : α) → y < (0 : α) → (0 : α) < x * y := by
   intro hx hy
   -- From x < 0, get 0 < -x
@@ -497,9 +522,10 @@ theorem mul_sign_neg (x y : α) :
       rw [← neg_zero] at h_contra
       have : 0 ≤ y := (neg_le_neg 0 y).mpr h_contra
       exact hy.2 this
-  -- By mul_sign_pos: 0 < (-x) * (-y)
-  have h_prod : 0 < (-x) * (-y) := mul_sign_pos (-x) (-y) h_neg_x h_neg_y
-  -- Show (-x) * (-y) = x * y
+  -- -x and -y are finite since x and y are finite
+  have hx_neg_fin : is_finite (-x) := is_finite_neg x hx_fin
+  have hy_neg_fin : is_finite (-y) := is_finite_neg y hy_fin
+  -- (-x) * (-y) = x * y, so product is finite
   have h_eq : (-x) * (-y) = x * y := by
     have step1 : (-x) * (-y) = -(x * (-y)) := neg_mul x (-y)
     have step2 : x * (-y) = -(x * y) := by
@@ -509,11 +535,15 @@ theorem mul_sign_neg (x y : α) :
     calc (-x) * (-y) = -(x * (-y)) := step1
       _ = -(-(x * y)) := by rw [step2]
       _ = x * y := neg_exact (x * y)
+  have hxy_neg_fin : is_finite ((-x) * (-y)) := by
+    rw [h_eq]; exact hxy_fin
+  -- By mul_sign_pos: 0 < (-x) * (-y)
+  have h_prod : 0 < (-x) * (-y) := mul_sign_pos (-x) (-y) hx_neg_fin hy_neg_fin hxy_neg_fin h_neg_x h_neg_y
   rw [← h_eq]
   exact h_prod
 
--- Positive * negative = negative
-theorem mul_sign_mixed (x y : α) :
+-- Positive * negative = negative (for finite values)
+theorem mul_sign_mixed (x y : α) (hx_fin : is_finite x) (hy_fin : is_finite y) (hxy_fin : is_finite (x * y)) :
   (0 : α) < x → y < (0 : α) → x * y < (0 : α) := by
   intro hx hy
   -- From y < 0, get 0 < -y
@@ -526,13 +556,17 @@ theorem mul_sign_mixed (x y : α) :
       rw [← neg_zero] at h_contra
       have : 0 ≤ y := (neg_le_neg 0 y).mpr h_contra
       exact hy.2 this
-  -- By mul_sign_pos: 0 < x * (-y)
-  have h_prod : 0 < x * (-y) := mul_sign_pos x (-y) hx h_neg_y
-  -- x * (-y) = -(x * y) by neg_mul
+  -- -y is finite since y is finite
+  have hy_neg_fin : is_finite (-y) := is_finite_neg y hy_fin
+  -- x * (-y) = -(x * y), so x * (-y) is finite
   have h_eq : x * (-y) = -(x * y) := by
     calc x * (-y) = (-y) * x := mul_comm x (-y)
       _ = -(y * x) := neg_mul y x
       _ = -(x * y) := by rw [mul_comm y x]
+  have hxy_neg_fin' : is_finite (x * (-y)) := by
+    rw [h_eq]; exact is_finite_neg (x * y) hxy_fin
+  -- By mul_sign_pos: 0 < x * (-y)
+  have h_prod : 0 < x * (-y) := mul_sign_pos x (-y) hx_fin hy_neg_fin hxy_neg_fin' hx h_neg_y
   -- So 0 < -(x * y), which means x * y < 0
   rw [h_eq] at h_prod
   -- Need to show: 0 < -(x * y) implies x * y < 0
@@ -553,10 +587,10 @@ theorem mul_sign_mixed (x y : α) :
 
 /-! ## Cancellation Properties -/
 
--- x - x = 0 is exact (follows from additive inverse)
-theorem sub_self (x : α) : x - x = 0 := by
+-- x - x = 0 is exact (follows from additive inverse, for finite values)
+theorem sub_self (x : α) (hx : is_finite x) : x - x = 0 := by
   rw [sub_eq_add_neg]
-  exact add_neg_self x
+  exact add_neg_self x hx
 
 -- (x + y) - y = x is FALSE in general for floating point!
 -- Example: (1e20 + 1.0) - 1e20 might equal 0, not 1.0, due to rounding
