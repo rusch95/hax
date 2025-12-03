@@ -376,6 +376,13 @@ def finfinity (fmt : FloatFormat) : FloatValue fmt := .infinity false
 /-- NaN value -/
 def fnan (fmt : FloatFormat) : FloatValue fmt := .nan
 
+/-- Rounding 0 gives fzero -/
+theorem round_zero (fmt : FloatFormat) (mode : RoundMode) :
+    round fmt mode 0 = fzero fmt := by
+  simp only [round, roundToFloatRepr, fzero]
+  -- q = 0 so we take the if-branch that returns the zero representation
+  simp
+
 /-! # Predicates -/
 
 /-- Check if a value is NaN -/
@@ -617,10 +624,76 @@ theorem le_refl_finite {fmt : FloatFormat} (f : FloatRepr fmt) :
 /-- Transitivity of le -/
 theorem le_trans {fmt : FloatFormat} (x y z : FloatValue fmt)
     (hxy : x ≤ y) (hyz : y ≤ z) : x ≤ z := by
-  -- TODO: Full case analysis on x, y, z
-  -- NaN cases are vacuously true, infinity cases are straightforward,
-  -- and finite cases use Rat.le_trans
-  sorry
+  -- Unfold LE to FloatValue.le for pattern matching
+  show FloatValue.le x z
+  simp only [LE.le, instLEFloatValue] at hxy hyz
+  -- Case analysis on all three values
+  cases x with
+  | nan =>
+    -- nan <= y is False, so hxy : False
+    simp only [FloatValue.le] at hxy
+  | infinity sx =>
+    cases sx with
+    | true =>
+      -- -∞ <= z : check if z = nan
+      cases z with
+      | nan =>
+        -- y <= nan is False, need to reduce the match
+        cases y <;> simp only [FloatValue.le] at hyz
+      | infinity _ => simp only [FloatValue.le]  -- -∞ <= ±∞ is True (first clause wins)
+      | finite _ => simp only [FloatValue.le]    -- -∞ <= finite is True
+    | false =>
+      -- +∞ <= y, need y = +∞ for this to be possible
+      cases y with
+      | nan => simp only [FloatValue.le] at hxy
+      | infinity sy =>
+        cases sy with
+        | false =>
+          -- +∞ <= +∞ is True, goal is +∞ <= z, use hyz
+          exact hyz
+        | true =>
+          -- +∞ <= -∞ is False
+          simp only [FloatValue.le] at hxy
+      | finite _ => simp only [FloatValue.le] at hxy
+  | finite fx =>
+    cases z with
+    | nan =>
+      -- y <= nan is False
+      cases y <;> simp only [FloatValue.le] at hyz
+    | infinity sz =>
+      cases sz with
+      | false =>
+        -- anything <= +∞ is True
+        simp only [FloatValue.le]
+      | true =>
+        -- fx <= y and y <= -∞
+        cases y with
+        | nan => simp only [FloatValue.le] at hxy
+        | infinity sy =>
+          cases sy with
+          | true =>
+            -- fx <= -∞ is False
+            simp only [FloatValue.le] at hxy
+          | false =>
+            -- +∞ <= -∞ is False
+            simp only [FloatValue.le] at hyz
+        | finite _ =>
+          -- finite <= -∞ is False
+          simp only [FloatValue.le] at hyz
+    | finite fz =>
+      cases y with
+      | nan => simp only [FloatValue.le] at hxy
+      | infinity sy =>
+        cases sy with
+        | true =>
+          -- fx <= -∞ is False
+          simp only [FloatValue.le] at hxy
+        | false =>
+          -- +∞ <= finite is False
+          simp only [FloatValue.le] at hyz
+      | finite fy =>
+        simp only [FloatValue.le] at *
+        exact _root_.le_trans hxy hyz
 
 /-- Characterization of strict less than -/
 theorem lt_iff_le_not_le {fmt : FloatFormat} (x y : FloatValue fmt) :
@@ -727,11 +800,17 @@ instance : FloatSpec (FloatValue binary64) where
     | infinity s => simp [FloatValue.isFinite] at hfin
     | nan => simp [FloatValue.isFinite] at hfin
 
-  mul_zero_finite := fun x _ => by
-    simp only [HMul.hMul, Mul.mul, Zero.zero]
-    simp only [fmul, fzero, FloatRepr.toRat]
-    simp [zero_mul, round]
-    sorry -- Need to show round 0 = fzero
+  mul_zero_finite := fun x hfin => by
+    cases x with
+    | finite f =>
+      -- Goal: 0 * finite f = 0
+      -- This reduces to fmul (fzero binary64) (finite f) = fzero binary64
+      show fmul binary64 defaultMode (fzero binary64) (.finite f) = fzero binary64
+      simp only [fmul, fzero, FloatRepr.toRat, Bool.false_eq_true, ↓reduceIte,
+                 Nat.cast_zero, mul_zero, zero_mul]
+      exact round_zero binary64 defaultMode
+    | infinity s => simp [FloatValue.isFinite] at hfin
+    | nan => simp [FloatValue.isFinite] at hfin
 
   to_rat := FloatValue.toRat
   to_rat_nan := toRat_nan binary64
@@ -759,12 +838,15 @@ instance : FloatSpec (FloatValue binary64) where
     | nan => rfl
 
   mul_one_left := fun x => by
-    simp only [HMul.hMul, Mul.mul, One.one]
     cases x with
     | finite f => exact fmul_one_left binary64 defaultMode f
     | infinity s =>
-      simp only [fmul, fone]
-      sorry -- Need to handle infinity * 1 case
+      -- Goal: 1 * infinity s = infinity s
+      show fmul binary64 defaultMode (fone binary64) (.infinity s) = .infinity s
+      simp only [fmul, fone, FloatValue.isNegative, Bool.false_xor]
+      -- mantissa of fone is 2^(prec-1) ≠ 0
+      have h : ¬(2 : Nat) ^ (binary64.prec - 1) = 0 := Nat.two_pow_pos (binary64.prec - 1) |>.ne'
+      simp only [h, ↓reduceIte]
     | nan => rfl
 
   add_monotonic_left := fun _ _ _ _ _ => by sorry
