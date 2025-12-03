@@ -400,6 +400,95 @@ def FloatValue.isFinite {fmt : FloatFormat} : FloatValue fmt → Bool
   | .finite _ => true
   | _ => false
 
+/-! # Semantic Equivalence
+
+IEEE 754 defines equality differently from structural equality:
+- +0 and -0 are equal (same mathematical value)
+- All NaNs could be considered equivalent (though IEEE says NaN ≠ NaN for comparison)
+
+For our formalization, we define a semantic equivalence that identifies
+values with the same mathematical meaning.
+-/
+
+/-- Semantic equivalence: values that represent the same mathematical quantity.
+    This identifies +0 with -0, and treats all NaNs as equivalent. -/
+def FloatValue.equiv {fmt : FloatFormat} (x y : FloatValue fmt) : Prop :=
+  match x, y with
+  | .nan, .nan => True                           -- All NaNs are equivalent
+  | .infinity sx, .infinity sy => sx = sy        -- Infinities must have same sign
+  | .finite fx, .finite fy => fx.toRat = fy.toRat  -- Same rational value (identifies ±0)
+  | _, _ => False
+
+notation:50 x " ≃ " y => FloatValue.equiv x y
+
+/-- Semantic equivalence is reflexive -/
+theorem FloatValue.equiv_refl {fmt : FloatFormat} (x : FloatValue fmt) : x ≃ x := by
+  cases x with
+  | nan => trivial
+  | infinity s => rfl
+  | finite f => rfl
+
+/-- Semantic equivalence is symmetric -/
+theorem FloatValue.equiv_symm {fmt : FloatFormat} {x y : FloatValue fmt}
+    (h : x ≃ y) : y ≃ x := by
+  cases x with
+  | nan => cases y <;> simp [FloatValue.equiv] at h ⊢; trivial
+  | infinity sx =>
+    cases y with
+    | nan => simp [FloatValue.equiv] at h
+    | infinity sy => simp [FloatValue.equiv] at h ⊢; exact h.symm
+    | finite _ => simp [FloatValue.equiv] at h
+  | finite fx =>
+    cases y with
+    | nan => simp [FloatValue.equiv] at h
+    | infinity _ => simp [FloatValue.equiv] at h
+    | finite fy => simp [FloatValue.equiv] at h ⊢; exact h.symm
+
+/-- Semantic equivalence is transitive -/
+theorem FloatValue.equiv_trans {fmt : FloatFormat} {x y z : FloatValue fmt}
+    (hxy : x ≃ y) (hyz : y ≃ z) : x ≃ z := by
+  cases x with
+  | nan =>
+    cases y <;> simp [FloatValue.equiv] at hxy
+    cases z <;> simp [FloatValue.equiv] at hyz ⊢; trivial
+  | infinity sx =>
+    cases y with
+    | nan => simp [FloatValue.equiv] at hxy
+    | infinity sy =>
+      simp [FloatValue.equiv] at hxy
+      cases z with
+      | nan => simp [FloatValue.equiv] at hyz
+      | infinity sz => simp [FloatValue.equiv] at hxy hyz ⊢; exact hxy.trans hyz
+      | finite _ => simp [FloatValue.equiv] at hyz
+    | finite _ => simp [FloatValue.equiv] at hxy
+  | finite fx =>
+    cases y with
+    | nan => simp [FloatValue.equiv] at hxy
+    | infinity _ => simp [FloatValue.equiv] at hxy
+    | finite fy =>
+      simp [FloatValue.equiv] at hxy
+      cases z with
+      | nan => simp [FloatValue.equiv] at hyz
+      | infinity _ => simp [FloatValue.equiv] at hyz
+      | finite fz => simp [FloatValue.equiv] at hxy hyz ⊢; exact hxy.trans hyz
+
+/-- Setoid instance for semantic equivalence -/
+instance FloatValue.setoid (fmt : FloatFormat) : Setoid (FloatValue fmt) where
+  r := FloatValue.equiv
+  iseqv := ⟨equiv_refl, equiv_symm, equiv_trans⟩
+
+/-- Semantic equivalence implies equal toRat for finite values -/
+theorem FloatValue.equiv_toRat {fmt : FloatFormat} {x y : FloatValue fmt}
+    (hx : x.isFinite) (hy : y.isFinite) (h : x ≃ y) : x.toRat = y.toRat := by
+  cases x with
+  | finite fx =>
+    cases y with
+    | finite fy => exact h
+    | infinity _ => simp [FloatValue.isFinite] at hy
+    | nan => simp [FloatValue.isFinite] at hy
+  | infinity _ => simp [FloatValue.isFinite] at hx
+  | nan => simp [FloatValue.isFinite] at hx
+
 /-! # Ordering -/
 
 /-- Less than or equal (via rational conversion, NaN unordered) -/
@@ -821,6 +910,42 @@ theorem le_antisymm_finite {fmt : FloatFormat} (fx fy : FloatRepr fmt)
   -- For non-zero mantissa, toRat determines the representation uniquely
   -- This requires showing FloatRepr representation is canonical
   sorry
+
+/-- Antisymmetry using semantic equivalence (fully provable!) -/
+theorem le_antisymm_equiv {fmt : FloatFormat} (x y : FloatValue fmt)
+    (hxy : x ≤ y) (hyx : y ≤ x) : x ≃ y := by
+  simp only [LE.le, instLEFloatValue] at hxy hyx
+  cases x with
+  | nan => simp only [FloatValue.le] at hxy
+  | infinity sx =>
+    cases y with
+    | nan => simp only [FloatValue.le] at hyx
+    | infinity sy =>
+      cases sx <;> cases sy <;> simp only [FloatValue.le, FloatValue.equiv] at hxy hyx ⊢
+    | finite _ =>
+      cases sx <;> simp only [FloatValue.le] at hxy hyx
+  | finite fx =>
+    cases y with
+    | nan => simp only [FloatValue.le] at hyx
+    | infinity sy =>
+      cases sy <;> simp only [FloatValue.le] at hxy hyx
+    | finite fy =>
+      simp only [FloatValue.le, FloatValue.equiv] at hxy hyx ⊢
+      exact le_antisymm hxy hyx
+
+/-- to_rat is injective up to semantic equivalence (fully provable!) -/
+theorem to_rat_inj_equiv {fmt : FloatFormat} (x y : FloatValue fmt)
+    (hx : x.isFinite) (hy : y.isFinite) (heq : x.toRat = y.toRat) : x ≃ y := by
+  cases x with
+  | finite fx =>
+    cases y with
+    | finite fy =>
+      simp only [FloatValue.equiv, FloatValue.toRat] at heq ⊢
+      exact heq
+    | infinity _ => simp [FloatValue.isFinite] at hy
+    | nan => simp [FloatValue.isFinite] at hy
+  | infinity _ => simp [FloatValue.isFinite] at hx
+  | nan => simp [FloatValue.isFinite] at hx
 
 /-- Totality of le (for finite values - NaN is unordered) -/
 theorem le_total_finite {fmt : FloatFormat} (fx fy : FloatRepr fmt) :
