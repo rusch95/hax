@@ -622,6 +622,18 @@ theorem fmul_one_left (fmt : FloatFormat) (mode : RoundMode) (f : FloatRepr fmt)
   rw [fmul_comm]
   exact fmul_one_right fmt mode f
 
+/-- x + (-x) = 0 for finite values -/
+theorem fadd_neg_self (fmt : FloatFormat) (mode : RoundMode) (f : FloatRepr fmt) :
+    fadd fmt mode (.finite f) (fneg (.finite f)) = fzero fmt := by
+  simp only [fadd, fneg]
+  -- Goal: round (f.toRat + (fneg f).toRat) = fzero
+  -- fneg flips the sign, so (fneg f).toRat = -f.toRat
+  have h : ({ f with sign := !f.sign } : FloatRepr fmt).toRat = -f.toRat := by
+    simp only [FloatRepr.toRat]
+    cases f.sign <;> simp [neg_mul]
+  rw [h, add_neg_cancel]
+  exact round_zero fmt mode
+
 /-! # Phase 5: Ordering Properties -/
 
 /-- Reflexivity of le for finite values -/
@@ -708,6 +720,118 @@ theorem le_trans {fmt : FloatFormat} (x y z : FloatValue fmt)
 theorem lt_iff_le_not_le {fmt : FloatFormat} (x y : FloatValue fmt) :
     x < y ↔ x ≤ y ∧ ¬(y ≤ x) := by
   simp only [LT.lt, FloatValue.lt, LE.le]
+
+/-- Negation reverses order: x ≤ y ↔ -y ≤ -x -/
+theorem fneg_le_neg {fmt : FloatFormat} (x y : FloatValue fmt) :
+    x ≤ y ↔ fneg y ≤ fneg x := by
+  constructor
+  · -- Forward: x ≤ y → fneg y ≤ fneg x
+    intro h
+    simp only [LE.le, instLEFloatValue] at h ⊢
+    cases x with
+    | nan => simp only [FloatValue.le] at h
+    | infinity sx =>
+      cases sx with
+      | true =>
+        cases y with
+        | nan => simp only [FloatValue.le] at h
+        | infinity sy => cases sy <;> simp only [fneg, FloatValue.le, Bool.not_true, Bool.not_false]
+        | finite fy => simp only [fneg, FloatValue.le, Bool.not_true]
+      | false =>
+        cases y with
+        | nan => simp only [FloatValue.le] at h
+        | infinity sy =>
+          cases sy with
+          | false => simp only [fneg, FloatValue.le, Bool.not_false]
+          | true => simp only [FloatValue.le] at h
+        | finite _ => simp only [FloatValue.le] at h
+    | finite fx =>
+      cases y with
+      | nan => simp only [FloatValue.le] at h
+      | infinity sy =>
+        cases sy with
+        | false => simp only [fneg, FloatValue.le, Bool.not_false]
+        | true => simp only [FloatValue.le] at h
+      | finite fy =>
+        simp only [fneg, FloatValue.le, FloatRepr.toRat] at h ⊢
+        have hfx : ({ fx with sign := !fx.sign } : FloatRepr fmt).toRat = -fx.toRat := by
+          simp only [FloatRepr.toRat]; cases fx.sign <;> simp [neg_mul]
+        have hfy : ({ fy with sign := !fy.sign } : FloatRepr fmt).toRat = -fy.toRat := by
+          simp only [FloatRepr.toRat]; cases fy.sign <;> simp [neg_mul]
+        rw [hfx, hfy]
+        exact neg_le_neg h
+  · -- Backward: fneg y ≤ fneg x → x ≤ y
+    intro h
+    -- Apply forward direction to fneg x and fneg y, then use neg_neg
+    have h' := fneg_le_neg.mp (fneg y) (fneg x) h
+    simp only [neg_neg] at h'
+    exact h'
+termination_by 0
+
+/-- Antisymmetry of ordering.
+
+Note: This is unprovable for structural equality because +0 and -0 are distinct
+FloatValues but compare as equal (both +0 <= -0 and -0 <= +0 hold since toRat = 0).
+IEEE 754 treats +0 == -0 as true in comparisons but they have different bit patterns.
+For a complete proof, we would need either:
+1. Semantic equality that identifies +0 = -0
+2. Modified fneg that doesn't create -0
+3. Precondition excluding signed zeros
+-/
+theorem le_antisymm_finite {fmt : FloatFormat} (fx fy : FloatRepr fmt)
+    (hxy : FloatValue.le (.finite fx) (.finite fy))
+    (hyx : FloatValue.le (.finite fy) (.finite fx))
+    (hfx_nz : fx.mantissa ≠ 0) :
+    (.finite fx : FloatValue fmt) = .finite fy := by
+  simp only [FloatValue.le] at hxy hyx
+  -- From fx.toRat <= fy.toRat and fy.toRat <= fx.toRat, we get fx.toRat = fy.toRat
+  have heq : fx.toRat = fy.toRat := le_antisymm hxy hyx
+  -- For non-zero mantissa, toRat determines the representation uniquely
+  -- This requires showing FloatRepr representation is canonical
+  sorry
+
+/-- Totality of le (for finite values - NaN is unordered) -/
+theorem le_total_finite {fmt : FloatFormat} (fx fy : FloatRepr fmt) :
+    FloatValue.le (.finite fx) (.finite fy) ∨ FloatValue.le (.finite fy) (.finite fx) := by
+  simp only [FloatValue.le]
+  exact le_total fx.toRat fy.toRat
+
+/-- Division of a finite nonzero value by itself equals 1 -/
+theorem fdiv_self (fmt : FloatFormat) (mode : RoundMode) (f : FloatRepr fmt)
+    (hnz : f.mantissa ≠ 0) : fdiv fmt mode (.finite f) (.finite f) = fone fmt := by
+  simp only [fdiv]
+  simp only [hnz, ↓reduceIte]
+  have h_toRat_nz : f.toRat ≠ 0 := by
+    simp only [FloatRepr.toRat]
+    intro h
+    cases f.sign with
+    | false =>
+      simp at h
+      have : (f.mantissa : Rat) ≠ 0 := Nat.cast_ne_zero.mpr hnz
+      have : (2 : Rat) ^ (f.exp - (fmt.prec : Int)) ≠ 0 := by
+        apply zpow_ne_zero
+        norm_num
+      exact absurd (mul_eq_zero.mp h) (not_or.mpr ⟨this, ‹(2 : Rat) ^ (f.exp - ↑fmt.prec) ≠ 0›⟩)
+    | true =>
+      simp at h
+      have : (f.mantissa : Rat) ≠ 0 := Nat.cast_ne_zero.mpr hnz
+      have : (2 : Rat) ^ (f.exp - (fmt.prec : Int)) ≠ 0 := by
+        apply zpow_ne_zero
+        norm_num
+      have hmul : (f.mantissa : Rat) * (2 : Rat) ^ (f.exp - ↑fmt.prec) ≠ 0 :=
+        mul_ne_zero this ‹(2 : Rat) ^ (f.exp - ↑fmt.prec) ≠ 0›
+      exact hmul (neg_eq_zero.mp h)
+  rw [div_self h_toRat_nz]
+  -- Now need to show round 1 = fone
+  -- 1 is exactly representable as fone, so this follows from round_idempotent
+  have h_fone_toRat : (fone fmt).toRat = 1 := fone_toRat fmt
+  -- rewrite using the fact that fone.toRat = 1
+  conv_rhs => rw [← h_fone_toRat]
+  cases fmt.fone_repr with
+  | intro repr hrepr =>
+    have hfone_eq : fone fmt = .finite repr := hrepr.2
+    rw [hfone_eq]
+    exact round_idempotent mode repr
 
 -- THEOREM: Error bounds follow from the definition of rounding
 theorem round_relative_error (fmt : FloatFormat) (q : Rat) (hq : q ≠ 0) :
@@ -870,23 +994,53 @@ instance : FloatSpec (FloatValue binary64) where
     simp only [HMul.hMul, Mul.mul, Neg.neg]
     exact fneg_fmul binary64 defaultMode x y
 
-  neg_le_neg := fun _ _ => by sorry
+  neg_le_neg := fun x y => fneg_le_neg x y
 
   sub_eq_add_neg := fun x y => by
     simp only [HSub.hSub, Sub.sub, HAdd.hAdd, Add.add, Neg.neg]
     rfl
 
   add_neg_self := fun x hfin => by
-    simp only [HAdd.hAdd, Add.add, Neg.neg, Zero.zero]
-    sorry -- Need to prove x + (-x) = 0 for finite x
+    cases x with
+    | finite f =>
+      show fadd binary64 defaultMode (.finite f) (fneg (.finite f)) = fzero binary64
+      exact fadd_neg_self binary64 defaultMode f
+    | infinity s => simp [FloatValue.isFinite] at hfin
+    | nan => simp [FloatValue.isFinite] at hfin
 
   le_trans := le_trans
-  le_antisymm := fun _ _ _ _ => by sorry
-  le_total := fun _ _ _ _ => by sorry
+  le_antisymm := fun _ _ _ _ => by sorry  -- See note on le_antisymm_finite
+  le_total := fun x y hx hy => by
+    cases x with
+    | finite fx =>
+      cases y with
+      | finite fy => exact le_total_finite fx fy
+      | infinity s => simp [FloatValue.isFinite] at hy
+      | nan => simp [FloatValue.isFinite] at hy
+    | infinity s => simp [FloatValue.isFinite] at hx
+    | nan => simp [FloatValue.isFinite] at hx
 
   lt_iff_le_not_le := lt_iff_le_not_le
 
-  div_self := fun _ _ _ => by sorry
+  div_self := fun x hfin hnz => by
+    cases x with
+    | finite f =>
+      show fdiv binary64 defaultMode (.finite f) (.finite f) = fone binary64
+      -- Need to show f.mantissa ≠ 0 from hnz
+      -- Note: hnz : .finite f ≠ fzero = .finite ⟨false, 0, emin, ...⟩
+      -- This is a bit subtle due to signed zeros, but for non-zero toRat, mantissa ≠ 0
+      by_cases h : f.mantissa = 0
+      · -- If mantissa = 0, then toRat = 0
+        have htoRat_zero : f.toRat = 0 := by
+          simp only [FloatRepr.toRat]
+          simp [h]
+        -- But then .finite f would be considered "zero" semantically
+        -- The precondition hnz should exclude this case
+        -- For now, we use sorry for the signed zero edge case
+        sorry
+      · exact fdiv_self binary64 defaultMode f h
+    | infinity s => simp [FloatValue.isFinite] at hfin
+    | nan => simp [FloatValue.isFinite] at hfin
 
   mul_div_cancel := fun _ _ _ _ _ _ _ => by sorry
   div_mul_cancel := fun _ _ _ _ _ _ _ => by sorry
@@ -990,14 +1144,40 @@ instance : FloatSpec (FloatValue binary32) where
   neg_mul := fun x y => by
     simp only [HMul.hMul, Mul.mul, Neg.neg]
     exact fneg_fmul binary32 defaultMode x y
-  neg_le_neg := fun _ _ => by sorry
+  neg_le_neg := fun x y => fneg_le_neg x y
   sub_eq_add_neg := fun x y => by simp only [HSub.hSub, Sub.sub, HAdd.hAdd, Add.add, Neg.neg]; rfl
-  add_neg_self := fun x hfin => by simp only [HAdd.hAdd, Add.add, Neg.neg, Zero.zero]; sorry
+  add_neg_self := fun x hfin => by
+    cases x with
+    | finite f =>
+      show fadd binary32 defaultMode (.finite f) (fneg (.finite f)) = fzero binary32
+      exact fadd_neg_self binary32 defaultMode f
+    | infinity s => simp [FloatValue.isFinite] at hfin
+    | nan => simp [FloatValue.isFinite] at hfin
   le_trans := le_trans
-  le_antisymm := fun _ _ _ _ => by sorry
-  le_total := fun _ _ _ _ => by sorry
+  le_antisymm := fun _ _ _ _ => by sorry  -- See note on le_antisymm_finite
+  le_total := fun x y hx hy => by
+    cases x with
+    | finite fx =>
+      cases y with
+      | finite fy => exact le_total_finite fx fy
+      | infinity s => simp [FloatValue.isFinite] at hy
+      | nan => simp [FloatValue.isFinite] at hy
+    | infinity s => simp [FloatValue.isFinite] at hx
+    | nan => simp [FloatValue.isFinite] at hx
   lt_iff_le_not_le := lt_iff_le_not_le
-  div_self := fun _ _ _ => by sorry
+  div_self := fun x hfin hnz => by
+    cases x with
+    | finite f =>
+      show fdiv binary32 defaultMode (.finite f) (.finite f) = fone binary32
+      by_cases h : f.mantissa = 0
+      · -- Signed zero edge case
+        have htoRat_zero : f.toRat = 0 := by
+          simp only [FloatRepr.toRat]
+          simp [h]
+        sorry
+      · exact fdiv_self binary32 defaultMode f h
+    | infinity s => simp [FloatValue.isFinite] at hfin
+    | nan => simp [FloatValue.isFinite] at hfin
   mul_div_cancel := fun _ _ _ _ _ _ _ => by sorry
   div_mul_cancel := fun _ _ _ _ _ _ _ => by sorry
   add_relative_error := fun x y hx hy hxy => by sorry
