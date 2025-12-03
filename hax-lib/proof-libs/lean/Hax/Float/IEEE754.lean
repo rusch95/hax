@@ -246,6 +246,37 @@ theorem log2Nat_normalized (m k : Nat) (h_lo : 2^k ≤ m) (h_hi : m < 2^(k+1)) :
       exact Nat.div_lt_of_lt_mul h2
     rw [ih (m/2) h_lo' h_hi']
 
+/-- For n > 0, log2Nat gives the correct floor: 2^log2Nat(n) ≤ n < 2^(log2Nat(n)+1) -/
+theorem log2Nat_bounds (n : Nat) (hn : n > 0) :
+    2^(log2Nat n) ≤ n ∧ n < 2^(log2Nat n + 1) := by
+  induction n using Nat.strong_induction_on with
+  | ind n ih =>
+    unfold log2Nat
+    by_cases h1 : n ≤ 1
+    · simp only [h1, ↓reduceIte]
+      have h2 : n = 1 := by omega
+      simp [h2]
+    · simp only [h1, ↓reduceIte]
+      have h_n2_pos : n / 2 > 0 := by omega
+      have h_n2_lt : n / 2 < n := Nat.div_lt_self hn (by omega)
+      have ⟨ih_lo, ih_hi⟩ := ih (n / 2) h_n2_lt h_n2_pos
+      constructor
+      · -- 2^(1 + log2Nat(n/2)) ≤ n
+        have h2 : 2^(1 + log2Nat (n/2)) = 2 * 2^(log2Nat (n/2)) := by
+          rw [Nat.pow_succ']
+        rw [h2]
+        have h3 : 2 * (n / 2) ≤ n := by omega
+        calc 2 * 2^(log2Nat (n/2)) ≤ 2 * (n / 2) := Nat.mul_le_mul_left 2 ih_lo
+          _ ≤ n := h3
+      · -- n < 2^(1 + log2Nat(n/2) + 1)
+        have h2 : 2^(1 + log2Nat (n/2) + 1) = 2 * 2^(log2Nat (n/2) + 1) := by
+          rw [Nat.pow_succ']
+        rw [h2]
+        have h3 : n < 2 * (n / 2) + 2 := by omega
+        calc n < 2 * (n / 2) + 2 := h3
+          _ ≤ 2 * (n / 2 + 1) := by ring_nf
+          _ ≤ 2 * 2^(log2Nat (n/2) + 1) := Nat.mul_le_mul_left 2 ih_hi
+
 /-- Compute floor(log2(|q|)) for a non-zero rational q.
     Returns an approximation based on numerator/denominator bit lengths. -/
 def log2Rat (q : Rat) : Int :=
@@ -669,6 +700,25 @@ theorem roundRatToNat_near (mode : RoundMode) (q : Rat) (hq : 0 ≤ q) :
       _ = ((q.floor.toNat : Int) : Rat) := by rw [h2]
       _ = (q.floor.toNat : Rat) := by simp
       _ ≤ ((if _ then _ else _) : Nat) := by split_ifs <;> simp <;> omega
+
+/-- For any rounding mode and q ≥ 1, roundRatToNat gives at least 1.
+    This is because all rounding modes give a value within 1 of the input,
+    and for q ≥ 1, this means the result is at least 0, but since floor(q) ≥ 1
+    for q ≥ 1, all modes give at least 1. -/
+theorem roundRatToNat_ge_one (mode : RoundMode) (q : Rat) (hq : 1 ≤ q) :
+    1 ≤ roundRatToNat mode q := by
+  unfold roundRatToNat
+  have h_floor_ge : q.floor ≥ 1 := by
+    have h1 : (1 : Rat) ≤ q := hq
+    have h2 : q.floor ≥ (1 : Rat).floor := Rat.floor_mono h1
+    simp at h2
+    exact h2
+  have h_toNat_ge : q.floor.toNat ≥ 1 := by
+    have h1 : q.floor ≥ 1 := h_floor_ge
+    have h2 : q.floor.toNat = q.floor.natAbs := rfl
+    have h3 : (q.floor.natAbs : Int) = q.floor := Int.natAbs_of_nonneg (by omega)
+    omega
+  cases mode <;> simp only <;> split_ifs <;> omega
 
 /-! ## Normalization -/
 
@@ -1350,6 +1400,112 @@ theorem roundToFloat_neg_relation (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
   -- Both sides simplify to the same expression with opposite signs
   ring
 
+/-- For positive q and prec ≥ 1, the scaled value q * 2^(prec - log2Rat(q)) ≥ 1.
+
+    This is a key lemma for proving that roundRatToNat gives a positive result
+    for positive inputs, which ensures normalizeMantissa doesn't produce zero.
+
+    The proof uses the property that log2Rat underestimates log2 by at most 1:
+    - For q = num/den in lowest terms
+    - log2Rat(q) = log2Nat(num) - log2Nat(den)
+    - log2(q) = log2(num) - log2(den)
+    - Since log2Nat underestimates log2 by at most 1 for each term,
+      log2Rat(q) is within 1 of log2(q)
+    - Therefore q * 2^(prec - log2Rat(q)) ≥ 2^(prec - 1) ≥ 1 for prec ≥ 1 -/
+theorem scaled_value_ge_one (q : Rat) (prec : Nat) (hq : 0 < q) (hprec : 1 ≤ prec) :
+    1 ≤ q * (2 : Rat) ^ ((prec : Int) - log2Rat q) := by
+  -- Extract num and den
+  have h_num_pos : 0 < q.num := by
+    rwa [Rat.num_pos]
+  have h_num_natAbs_pos : q.num.natAbs > 0 := Int.natAbs_pos.mpr (ne_of_gt h_num_pos)
+  have h_den_pos : q.den > 0 := q.den_pos
+  -- Get bounds on num and den from log2Nat_bounds
+  have ⟨h_num_lo, h_num_hi⟩ := log2Nat_bounds q.num.natAbs h_num_natAbs_pos
+  have ⟨h_den_lo, h_den_hi⟩ := log2Nat_bounds q.den h_den_pos
+  -- log2Rat for positive q
+  have h_log2Rat : log2Rat q = (log2Nat q.num.natAbs : Int) - (log2Nat q.den : Int) := by
+    unfold log2Rat
+    have h_not_neg : ¬(q < 0) := not_lt.mpr (le_of_lt hq)
+    simp only [h_not_neg, ↓reduceIte]
+    have h_num_nz : q.num.natAbs ≠ 0 := Nat.pos_iff_ne_zero.mp h_num_natAbs_pos
+    simp only [h_num_nz, ↓reduceIte]
+    -- For positive q, abs_q = q
+    have h_abs : (if q < 0 then -q else q) = q := by simp [h_not_neg]
+    simp only [h_abs]
+  rw [h_log2Rat]
+  -- The scaled exponent is prec - (log2Nat(num) - log2Nat(den)) = prec - log2Nat(num) + log2Nat(den)
+  have h_scale : (prec : Int) - ((log2Nat q.num.natAbs : Int) - (log2Nat q.den : Int)) =
+                 prec - log2Nat q.num.natAbs + log2Nat q.den := by ring
+  rw [h_scale]
+  -- q = num / den as rationals
+  have h_q_eq : q = (q.num : Rat) / (q.den : Rat) := (Rat.num_div_den q).symm
+  -- num ≥ 2^log2Nat(num) and den < 2^(log2Nat(den)+1)
+  -- So num/den > 2^log2Nat(num) / 2^(log2Nat(den)+1) = 2^(log2Nat(num) - log2Nat(den) - 1)
+  -- Multiply by 2^(prec - log2Nat(num) + log2Nat(den)):
+  -- q * 2^(prec - log2Nat(num) + log2Nat(den)) > 2^(prec - 1)
+  have h_den_upper : (q.den : Rat) < (2 : Rat) ^ (log2Nat q.den + 1) := by
+    have h1 : q.den < 2^(log2Nat q.den + 1) := h_den_hi
+    calc (q.den : Rat) < (2^(log2Nat q.den + 1) : Nat) := Nat.cast_lt.mpr h1
+      _ = (2 : Rat) ^ (log2Nat q.den + 1) := by simp [zpow_natCast]
+  have h_num_lower : (2 : Rat) ^ (log2Nat q.num.natAbs) ≤ (q.num.natAbs : Rat) := by
+    have h1 : 2^(log2Nat q.num.natAbs) ≤ q.num.natAbs := h_num_lo
+    calc (2 : Rat) ^ (log2Nat q.num.natAbs) = (2^(log2Nat q.num.natAbs) : Nat) := by simp [zpow_natCast]
+      _ ≤ (q.num.natAbs : Rat) := Nat.cast_le.mpr h1
+  -- For the proof, we use that:
+  -- q * 2^(prec - log2Nat(num) + log2Nat(den))
+  -- = (num/den) * 2^(prec - log2Nat(num) + log2Nat(den))
+  -- = num * 2^(prec - log2Nat(num) + log2Nat(den)) / den
+  -- ≥ 2^log2Nat(num) * 2^(prec - log2Nat(num) + log2Nat(den)) / 2^(log2Nat(den)+1)
+  -- = 2^(log2Nat(num) + prec - log2Nat(num) + log2Nat(den)) / 2^(log2Nat(den)+1)
+  -- = 2^(prec + log2Nat(den)) / 2^(log2Nat(den)+1)
+  -- = 2^(prec + log2Nat(den) - log2Nat(den) - 1)
+  -- = 2^(prec - 1)
+  -- ≥ 1 for prec ≥ 1
+  have h_positive_num : (0 : Rat) < q.num := Int.cast_pos.mpr h_num_pos
+  have h_positive_den : (0 : Rat) < q.den := Nat.cast_pos.mpr h_den_pos
+  have h_q_pos_rat : (0 : Rat) < q := hq
+  have h_2_pos : (0 : Rat) < 2 := by decide
+  have h_scale_pos : (0 : Rat) < (2 : Rat) ^ ((prec : Int) - log2Nat q.num.natAbs + log2Nat q.den) := by
+    apply zpow_pos_of_pos; decide
+  -- Direct calculation approach using bounds
+  -- Lower bound: q ≥ num / 2^(log2Nat(den)+1) where num = q.num (positive)
+  -- Since num ≥ 2^log2Nat(num) and num = q.num.natAbs for positive q.num
+  have h_q_lower : q > (2 : Rat) ^ (log2Nat q.num.natAbs) / (2 : Rat) ^ (log2Nat q.den + 1) := by
+    rw [h_q_eq]
+    have h_num_eq : (q.num : Rat) = (q.num.natAbs : Rat) := by
+      simp only [Int.cast_natAbs, abs_of_pos h_num_pos]
+    rw [h_num_eq]
+    apply div_lt_div_of_pos_left h_num_lower h_den_upper
+    apply zpow_pos_of_pos; decide
+  -- Simplify the exponent difference
+  have h_exp_diff : (log2Nat q.num.natAbs : Int) - ((log2Nat q.den : Int) + 1) =
+                    log2Nat q.num.natAbs - log2Nat q.den - 1 := by ring
+  have h_zpow_div : (2 : Rat) ^ (log2Nat q.num.natAbs) / (2 : Rat) ^ (log2Nat q.den + 1) =
+                    (2 : Rat) ^ ((log2Nat q.num.natAbs : Int) - (log2Nat q.den + 1)) := by
+    rw [zpow_sub₀ (by decide : (2 : Rat) ≠ 0)]
+    congr 1
+    simp only [zpow_natCast, Nat.cast_add, Nat.cast_one]
+  rw [h_zpow_div] at h_q_lower
+  -- Now: q > 2^(log2Nat(num) - log2Nat(den) - 1)
+  -- Multiply by 2^(prec - log2Nat(num) + log2Nat(den)):
+  -- q * 2^(prec - log2Nat(num) + log2Nat(den)) > 2^(log2Nat(num) - log2Nat(den) - 1 + prec - log2Nat(num) + log2Nat(den))
+  --                                             = 2^(prec - 1)
+  have h_result_exp : ((log2Nat q.num.natAbs : Int) - (log2Nat q.den + 1)) +
+                      ((prec : Int) - log2Nat q.num.natAbs + log2Nat q.den) = prec - 1 := by ring
+  calc (1 : Rat) ≤ (2 : Rat) ^ ((prec : Int) - 1) := by
+        have h1 : (prec : Int) - 1 ≥ 0 := by omega
+        have h2 : (2 : Rat) ^ ((prec : Int) - 1) ≥ (2 : Rat) ^ (0 : Int) := by
+          apply zpow_le_zpow_right₀ (by decide : 1 ≤ (2 : Rat)) h1
+        simp at h2
+        linarith
+    _ = (2 : Rat) ^ (((log2Nat q.num.natAbs : Int) - (log2Nat q.den + 1)) +
+                     ((prec : Int) - log2Nat q.num.natAbs + log2Nat q.den)) := by rw [h_result_exp]
+    _ = (2 : Rat) ^ ((log2Nat q.num.natAbs : Int) - (log2Nat q.den + 1)) *
+        (2 : Rat) ^ ((prec : Int) - log2Nat q.num.natAbs + log2Nat q.den) := by
+        rw [← zpow_add₀ (by decide : (2 : Rat) ≠ 0)]
+    _ < q * (2 : Rat) ^ ((prec : Int) - log2Nat q.num.natAbs + log2Nat q.den) := by
+        apply mul_lt_mul_of_pos_right h_q_lower h_scale_pos
+
 /-- Helper: roundToFloat for positive values is monotonic.
 
     This is the core monotonicity property for the positive rounding pipeline.
@@ -1361,9 +1517,11 @@ theorem roundToFloat_neg_relation (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
 
     The proof uses a key property: for TowardZero mode, the rounded value is ≤ the input,
     and the rounded value is the largest representable value ≤ the input. This implies
-    monotonicity. Similar arguments work for other rounding modes. -/
+    monotonicity. Similar arguments work for other rounding modes.
+
+    NOTE: Requires cfg_prec ≥ 1 to ensure the scaled value is at least 1. -/
 theorem roundToFloat_pos_monotonic (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
-    (mode : RoundMode) (x y : Rat) (hx : 0 < x) (hy : 0 < y) (h_le : x ≤ y) :
+    (mode : RoundMode) (x y : Rat) (hprec : 1 ≤ cfg_prec) (hx : 0 < x) (hy : 0 < y) (h_le : x ≤ y) :
     (roundToFloat cfg_prec cfg_emin cfg_emax mode x).toRat cfg_prec ≤
     (roundToFloat cfg_prec cfg_emin cfg_emax mode y).toRat cfg_prec := by
   -- Both x and y are positive, so sign = false for both
@@ -1442,26 +1600,223 @@ theorem roundToFloat_pos_monotonic (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
   -- Combined with roundRatToNat bounds and the structure of the pipeline,
   -- monotonicity follows
 
-  -- KEY MONOTONICITY ARGUMENT:
-  -- After normalization, m * 2^(exp - prec) is in [2^exp, 2^(exp+1)) since m ∈ [2^prec, 2^(prec+1))
-  -- For x ≤ y, we compare their final exponents:
-  -- Case 1: exp_x < exp_y => r(x) < 2^(exp_x+1) ≤ 2^exp_y ≤ r(y), so r(x) < r(y) ✓
-  -- Case 2: exp_x = exp_y => Same exponent band, so m_x ≤ m_y by floor monotonicity ✓
-  -- Case 3: exp_x > exp_y => r(x) ≥ 2^exp_x > 2^(exp_y+1) > r(y), but this contradicts
-  --         x ≤ y because we'd have r(x) ≤ x ≤ y but r(x) > r(y), meaning
-  --         r(y) < r(x) ≤ x ≤ y. But the pipeline produces r(y) from y,
-  --         and since y ≥ r(x) ≥ 2^exp_x ≥ 2^(exp_y+1), the normalization for y
-  --         would have produced exp ≥ exp_y+1, not exp_y. Contradiction!
-  --
-  -- The formal proof requires showing that normalization produces the correct exponent
-  -- based on the actual value, which the helper lemmas support.
+  -- The formal proof uses the band structure of normalized values.
+  -- After normalization, values are in bands [2^e, 2^(e+1)) based on exponent e.
 
-  -- For the complete formal proof, we need to show:
-  -- 1. The final exp is determined by which "band" [2^k, 2^(k+1)) the value falls into
-  -- 2. For x ≤ y, either they're in the same band (and m_x ≤ m_y) or x is in a lower band
-  -- Both cases give r(x) ≤ r(y)
+  -- Get the actual pipeline values after simp
+  -- We need to compare: (result for x).mantissa * 2^((result for x).exp - prec)
+  --                  vs (result for y).mantissa * 2^((result for y).exp - prec)
 
-  sorry  -- Requires proving exponent consistency through normalization
+  -- Use omega/decide to handle the arithmetic comparisons
+  -- The key insight: exponent clamping and mantissa normalization preserve monotonicity
+
+  -- For the formal proof, we observe:
+  -- 1. The clamped exponent is monotonic in the unclamped exponent
+  -- 2. For same clamped exponent, mantissa comparison determines order
+  -- 3. For different clamped exponents, the band structure gives the order
+
+  -- Case analysis on whether mantissas are zero
+  by_cases h_mx_zero : (normalizeMantissa cfg_prec (roundRatToNat mode (x * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat x)))
+                        (log2Rat x) (roundRatToNat mode (x * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat x)) + cfg_prec)).1 = 0
+  · -- m_x = 0: result for x is 0
+    simp only [h_mx_zero, Nat.cast_zero, zero_mul]
+    apply mul_nonneg
+    · exact nat_cast_nonneg _
+    · apply zpow_nonneg; decide
+  · by_cases h_my_zero : (normalizeMantissa cfg_prec (roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)))
+                          (log2Rat y) (roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)) + cfg_prec)).1 = 0
+    · -- m_y = 0 but m_x ≠ 0: need to show this is impossible when x ≤ y and x > 0
+      -- If m_y = 0, then roundRatToNat of y's scaled value must have been 0
+      -- But y > 0 and prec ≥ 1, so the scaled value is ≥ 1, so roundRatToNat ≥ 1
+      exfalso
+      -- normalizeMantissa returns 0 only when input is 0
+      have h_norm_equiv : normalizeMantissa cfg_prec (roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)))
+          (log2Rat y) (roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)) + cfg_prec) =
+          (0, (normalizeMantissa cfg_prec (roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)))
+          (log2Rat y) (roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)) + cfg_prec)).2) := by
+        have h := h_my_zero
+        rw [Prod.ext_iff]
+        constructor
+        · exact h
+        · rfl
+      -- If normalized output is 0, either input was 0 or fuel ran out
+      -- With sufficient fuel, input must be 0
+      have h_input_zero : roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)) = 0 := by
+        -- normalizeMantissa cfg_prec m e f returns (0, _) only when m = 0
+        by_contra h_ne_zero
+        have h_pos : roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)) > 0 := Nat.pos_of_ne_zero h_ne_zero
+        have h_norm := normalizeMantissa_isNormalized cfg_prec
+          (roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)))
+          (log2Rat y)
+          (roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)) + cfg_prec)
+          (by omega)
+        cases h_norm with
+        | inl h_zero => exact h_ne_zero h_zero
+        | inr h_range =>
+          have ⟨h_lo, _⟩ := h_range
+          have h_ge_1 : 1 ≤ (normalizeMantissa cfg_prec (roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)))
+              (log2Rat y) (roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)) + cfg_prec)).1 := by
+            have : 2^cfg_prec ≥ 1 := Nat.one_le_pow cfg_prec 2 (by omega)
+            omega
+          omega
+      -- But y > 0 and prec ≥ 1, so scaled value ≥ 1
+      have h_scaled_ge_one := scaled_value_ge_one y cfg_prec hy hprec
+      -- So roundRatToNat ≥ 1, contradiction
+      have h_round_ge_one := roundRatToNat_ge_one mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)) h_scaled_ge_one
+      omega
+    · -- Both m_x ≠ 0 and m_y ≠ 0: use the band structure
+
+      -- Get normalized mantissa bounds for both x and y
+      have h_mx_pos : 0 < roundRatToNat mode (x * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat x)) := by
+        have h_scaled_x := scaled_value_ge_one x cfg_prec hx hprec
+        have h_round_x := roundRatToNat_ge_one mode (x * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat x)) h_scaled_x
+        omega
+      have h_my_pos : 0 < roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)) := by
+        have h_scaled_y := scaled_value_ge_one y cfg_prec hy hprec
+        have h_round_y := roundRatToNat_ge_one mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)) h_scaled_y
+        omega
+
+      -- Get normalization results
+      have h_norm_x := normalizeMantissa_isNormalized cfg_prec
+        (roundRatToNat mode (x * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat x)))
+        (log2Rat x)
+        (roundRatToNat mode (x * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat x)) + cfg_prec)
+        (by omega)
+      have h_norm_y := normalizeMantissa_isNormalized cfg_prec
+        (roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)))
+        (log2Rat y)
+        (roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)) + cfg_prec)
+        (by omega)
+
+      -- Since m_x ≠ 0 and m_y ≠ 0, they must be in the normalized range
+      cases h_norm_x with
+      | inl h_zero_x => exact absurd h_zero_x h_mx_zero
+      | inr h_range_x =>
+        cases h_norm_y with
+        | inl h_zero_y => exact absurd h_zero_y h_my_zero
+        | inr h_range_y =>
+          -- Now we have:
+          -- h_range_x : 2^cfg_prec ≤ m_x ∧ m_x < 2^(cfg_prec+1)
+          -- h_range_y : 2^cfg_prec ≤ m_y ∧ m_y < 2^(cfg_prec+1)
+
+          -- The final comparison involves mantissa * 2^(clamped_exp - prec)
+          -- For normalized values, this gives values in bands [2^exp, 2^(exp+1))
+
+          -- The IEEE 754 rounding pipeline is designed to be monotonic.
+          -- The formal proof requires showing that the band structure preserves order:
+          -- - If clamped_x < clamped_y: value_x < 2^(clamped_x+1) ≤ 2^clamped_y ≤ value_y
+          -- - If clamped_x = clamped_y: need to show mantissa comparison works
+          -- - If clamped_x > clamped_y: impossible for x ≤ y (by band disjointness)
+
+          -- For now, we use the mathematical fact that IEEE 754 rounding is monotonic.
+          -- A complete formal proof would require additional lemmas about:
+          -- 1. The relationship between input value and output band
+          -- 2. Monotonicity of the clamping function
+          -- 3. Band structure for comparison
+
+          -- Simplified argument: the result is a correctly rounded approximation
+          -- and IEEE 754 rounding modes are all monotonic by construction.
+
+          -- Extract the mantissa and exponent components
+          let mx := (normalizeMantissa cfg_prec (roundRatToNat mode (x * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat x)))
+              (log2Rat x) (roundRatToNat mode (x * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat x)) + cfg_prec)).1
+          let ex := (normalizeMantissa cfg_prec (roundRatToNat mode (x * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat x)))
+              (log2Rat x) (roundRatToNat mode (x * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat x)) + cfg_prec)).2
+          let my := (normalizeMantissa cfg_prec (roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)))
+              (log2Rat y) (roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)) + cfg_prec)).1
+          let ey := (normalizeMantissa cfg_prec (roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)))
+              (log2Rat y) (roundRatToNat mode (y * (2 : Rat) ^ ((cfg_prec : Int) - log2Rat y)) + cfg_prec)).2
+
+          -- Clamping function
+          let clamp_x := if ex < cfg_emin then cfg_emin else if ex > cfg_emax then cfg_emax else ex
+          let clamp_y := if ey < cfg_emin then cfg_emin else if ey > cfg_emax then cfg_emax else ey
+
+          -- The goal is to show: mx * 2^(clamp_x - prec) ≤ my * 2^(clamp_y - prec)
+          -- For this, we use the band structure and monotonicity of the clamping
+
+          -- Case analysis on exponent comparison
+          by_cases h_exp_lt : clamp_x < clamp_y
+          · -- clamp_x < clamp_y: x's band is strictly below y's band
+            have h_mx_upper : (mx : Rat) * (2 : Rat) ^ (clamp_x - cfg_prec) < (2 : Rat) ^ (clamp_x + 1) := by
+              have ⟨_, h_hi⟩ := h_range_x
+              calc (mx : Rat) * (2 : Rat) ^ (clamp_x - cfg_prec)
+                  < (2^(cfg_prec + 1) : Nat) * (2 : Rat) ^ (clamp_x - cfg_prec) := by
+                    apply mul_lt_mul_of_pos_right
+                    · exact Nat.cast_lt.mpr h_hi
+                    · apply zpow_pos_of_pos; decide
+                  _ = (2 : Rat) ^ (cfg_prec + 1) * (2 : Rat) ^ (clamp_x - cfg_prec) := by simp [zpow_natCast]
+                  _ = (2 : Rat) ^ (cfg_prec + 1 + (clamp_x - cfg_prec)) := by
+                      rw [← zpow_add₀ (by decide : (2 : Rat) ≠ 0)]
+                  _ = (2 : Rat) ^ (clamp_x + 1) := by ring_nf
+            have h_my_lower : (2 : Rat) ^ clamp_y ≤ (my : Rat) * (2 : Rat) ^ (clamp_y - cfg_prec) := by
+              have ⟨h_lo, _⟩ := h_range_y
+              calc (2 : Rat) ^ clamp_y
+                  = (2 : Rat) ^ cfg_prec * (2 : Rat) ^ (clamp_y - cfg_prec) := by
+                      rw [← zpow_add₀ (by decide : (2 : Rat) ≠ 0)]; ring_nf
+                  _ ≤ (my : Rat) * (2 : Rat) ^ (clamp_y - cfg_prec) := by
+                      apply mul_le_mul_of_nonneg_right
+                      · calc (2 : Rat) ^ cfg_prec = (2^cfg_prec : Nat) := by simp [zpow_natCast]
+                          _ ≤ (my : Rat) := Nat.cast_le.mpr h_lo
+                      · apply zpow_nonneg; decide
+            have h_band_order : (2 : Rat) ^ (clamp_x + 1) ≤ (2 : Rat) ^ clamp_y := by
+              apply zpow_le_zpow_right₀ (by decide : 1 ≤ (2 : Rat))
+              omega
+            calc (mx : Rat) * (2 : Rat) ^ (clamp_x - cfg_prec)
+                < (2 : Rat) ^ (clamp_x + 1) := h_mx_upper
+              _ ≤ (2 : Rat) ^ clamp_y := h_band_order
+              _ ≤ (my : Rat) * (2 : Rat) ^ (clamp_y - cfg_prec) := h_my_lower
+          · -- clamp_x ≥ clamp_y
+            push_neg at h_exp_lt
+            by_cases h_exp_eq : clamp_x = clamp_y
+            · -- Same exponent band: compare mantissas
+              rw [h_exp_eq]
+              apply mul_le_mul_of_nonneg_right
+              · -- Need: mx ≤ my
+                -- This is the core monotonicity claim for same-band comparison
+                -- The IEEE 754 rounding pipeline ensures this when x ≤ y
+                -- A formal proof would trace through the scaling and rounding steps
+                -- For values in the same band, the mantissa ordering reflects the input ordering
+                -- This follows from the deterministic rounding modes
+                --
+                -- Mathematical argument:
+                -- - Both x and y round to values in the same band [2^e, 2^(e+1))
+                -- - Within this band, representable values are ordered by mantissa
+                -- - Since x ≤ y, x either rounds to same value as y, or to a smaller value
+                -- - Therefore mx ≤ my
+                --
+                -- The complete formal proof requires showing that the composition of:
+                -- log2Rat, scaling, roundRatToNat, and normalizeMantissa
+                -- produces mantissas that preserve the original ordering when in the same band.
+                --
+                -- For simplicity, we use native_decide for small cases or accept this as
+                -- a known property of IEEE 754 floating-point arithmetic.
+                by_cases h_mx_le_my : mx ≤ my
+                · exact Nat.cast_le.mpr h_mx_le_my
+                · -- mx > my case: derive contradiction using band structure
+                  -- If mx > my but x ≤ y, the values would violate ordering
+                  -- This requires the full monotonicity infrastructure
+                  push_neg at h_mx_le_my
+                  -- The key fact: within the same band, larger mantissa means larger value
+                  -- But x ≤ y implies result(x) ≤ result(y)
+                  -- So mx ≤ my must hold
+                  -- This is the core IEEE 754 monotonicity property
+                  exfalso
+                  -- Use the fact that roundRatToNat is monotonic within a band
+                  -- and normalization preserves relative ordering
+                  -- The detailed proof requires more lemmas about the pipeline
+                  -- For now, we note this is impossible by IEEE 754 design
+                  -- and the proof infrastructure would be substantial
+                  sorry  -- mx > my contradicts x ≤ y for same-band rounding
+              · apply zpow_nonneg; decide
+            · -- clamp_x > clamp_y: need to show this contradicts x ≤ y
+              -- This case means x rounded to a higher band than y
+              -- But x ≤ y, so this shouldn't happen
+              have h_exp_gt : clamp_x > clamp_y := by omega
+              -- Similar to above, this requires showing the band assignment
+              -- is monotonic with respect to the input value
+              -- The key fact: if x ≤ y, then the band for x is ≤ the band for y
+              exfalso
+              sorry  -- clamp_x > clamp_y contradicts x ≤ y
 
 /-- Rounding preserves order.
 
@@ -1472,9 +1827,11 @@ theorem roundToFloat_pos_monotonic (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
     which follows from:
     1. The representable float values form a well-ordered set
     2. Rounding maps each rational to a nearby representable value
-    3. The rounding operation preserves the relative order -/
+    3. The rounding operation preserves the relative order
+
+    NOTE: Requires cfg_prec ≥ 1 for non-trivial floating-point formats. -/
 theorem roundToFloat_monotonic (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
-    (mode : RoundMode) (x y : Rat) :
+    (mode : RoundMode) (x y : Rat) (hprec : 1 ≤ cfg_prec) :
     x ≤ y → (roundToFloat cfg_prec cfg_emin cfg_emax mode x).le cfg_prec
             (roundToFloat cfg_prec cfg_emin cfg_emax mode y) := by
   intro h_le
@@ -1534,13 +1891,13 @@ theorem roundToFloat_monotonic (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
           have h_neg_le : -y ≤ -x := neg_le_neg_iff.mpr h_le
           -- Apply positive monotonicity
           exact roundToFloat_pos_monotonic cfg_prec cfg_emin cfg_emax mode (-y) (-x)
-                h_neg_y_pos h_neg_x_pos h_neg_le
+                hprec h_neg_y_pos h_neg_x_pos h_neg_le
       · -- x ≥ 0, but x ≠ 0, so x > 0
         have hx_pos : 0 < x := lt_of_le_of_ne (not_lt.mp hx_neg) (Ne.symm hx)
         -- Since x > 0 and x ≤ y, we have y > 0
         have hy_pos : 0 < y := lt_of_lt_of_le hx_pos h_le
         -- Both positive: use the positive monotonicity helper
-        exact roundToFloat_pos_monotonic cfg_prec cfg_emin cfg_emax mode x y hx_pos hy_pos h_le
+        exact roundToFloat_pos_monotonic cfg_prec cfg_emin cfg_emax mode x y hprec hx_pos hy_pos h_le
 
 /-- toRat is injective for non-zero normalized floats.
 
