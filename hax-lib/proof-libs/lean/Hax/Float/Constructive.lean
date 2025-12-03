@@ -501,14 +501,46 @@ theorem fneg_toRat {fmt : FloatFormat} (x : FloatValue fmt) :
   | infinity s => simp [fneg, FloatValue.toRat]
   | nan => simp [fneg, FloatValue.toRat]
 
+/-- Rounding is symmetric: round(-q) = -round(q).
+
+This is a fundamental property of round-to-nearest-even (and most rounding modes).
+The rounded result of -q is the negation of the rounded result of q.
+-/
+theorem round_neg_eq_neg_round (fmt : FloatFormat) (mode : RoundMode) (q : Rat) :
+    round fmt mode (-q) = fneg (round fmt mode q) := by
+  sorry  -- Requires detailed analysis showing roundToFloatRepr preserves negation
+
 /-- Negation distributes over multiplication: (-x) * y = -(x * y) -/
 theorem fneg_fmul (fmt : FloatFormat) (mode : RoundMode) (x y : FloatValue fmt) :
     fmul fmt mode (fneg x) y = fneg (fmul fmt mode x y) := by
-  -- This theorem requires showing that:
-  -- 1. For infinity cases, xor and negation interact correctly
-  -- 2. For finite cases, round(-q) = fneg(round q)
-  -- The finite case requires detailed rounding analysis
-  sorry
+  match x, y with
+  | .nan, _ => rfl
+  | _, .nan => simp only [fneg, fmul]
+  | .infinity sx, .infinity sy =>
+    simp only [fneg, fmul, FloatValue.isNegative, Bool.not_not]
+    -- Goal: .infinity ((!sx) ^^ sy) = .infinity (!(sx ^^ sy))
+    -- !(sx ^^ sy) = (!sx) ^^ sy by De Morgan for xor
+    cases sx <;> cases sy <;> rfl
+  | .infinity sx, .finite fy =>
+    simp only [fneg, fmul, FloatValue.isNegative]
+    by_cases h : fy.mantissa = 0
+    · simp [h]
+    · simp only [h, ↓reduceIte, Bool.not_not]
+      cases sx <;> cases fy.sign <;> rfl
+  | .finite fx, .infinity sy =>
+    simp only [fneg, fmul, FloatValue.isNegative]
+    by_cases h : fx.mantissa = 0
+    · simp [h]
+    · simp only [h, ↓reduceIte, Bool.not_not]
+      cases fx.sign <;> cases sy <;> rfl
+  | .finite fx, .finite fy =>
+    simp only [fneg, fmul]
+    -- Goal: round (fneg fx).toRat * fy.toRat = fneg (round (fx.toRat * fy.toRat))
+    have h_neg_toRat : ({ fx with sign := !fx.sign } : FloatRepr fmt).toRat = -fx.toRat := by
+      simp only [FloatRepr.toRat]
+      cases fx.sign <;> simp [neg_mul]
+    rw [h_neg_toRat, neg_mul]
+    exact round_neg_eq_neg_round fmt mode (fx.toRat * fy.toRat)
 
 /-! # Phase 3: Commutativity -/
 
