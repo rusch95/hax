@@ -275,6 +275,23 @@ theorem log2Nat_mul_pow2 (m k : Nat) (hm : m > 0) :
     rw [h2, ih]
     omega
 
+/-- Key invariant for log2 of ratios: log2(a) - log2(b) is preserved when both are scaled by 2.
+    This implies log2Nat(num) - log2Nat(den) = log2Nat(m) - log2Nat(2^j) for m/2^j. -/
+theorem log2Nat_ratio_invariant (a b : Nat) (ha : a > 0) (hb : b > 0) :
+    (log2Nat (a * 2) : Int) - (log2Nat (b * 2) : Int) = (log2Nat a : Int) - (log2Nat b : Int) := by
+  have h1 : log2Nat (a * 2) = log2Nat a + 1 := by
+    rw [Nat.mul_comm]
+    have h := log2Nat_mul_pow2 a 1 ha
+    simp at h
+    exact h
+  have h2 : log2Nat (b * 2) = log2Nat b + 1 := by
+    rw [Nat.mul_comm]
+    have h := log2Nat_mul_pow2 b 1 hb
+    simp at h
+    exact h
+  simp [h1, h2]
+  omega
+
 /-- log2Rat of a normalized float value equals the exponent.
     For m ∈ [2^prec, 2^(prec+1)) and q = m * 2^(e - prec), log2Rat q = e.
     This relies on how Rat represents the product of an integer and a power of 2. -/
@@ -322,8 +339,6 @@ theorem log2Rat_normalized (m : Nat) (e : Int) (prec : Nat)
     omega
   · -- Case: e < prec, so k := e - prec < 0
     -- q = m / 2^(prec - e) as a fraction
-    -- This case requires reasoning about the gcd reduction in Rat
-    -- The proof is more complex but follows the same pattern
     push_neg at h_e_ge
     -- Let j = prec - e (j > 0)
     set j := ((prec : Int) - e).toNat with hj_def
@@ -332,21 +347,161 @@ theorem log2Rat_normalized (m : Nat) (e : Int) (prec : Nat)
     have h_j_pos : j > 0 := by omega
     have h_k_neg : e - (prec : Int) = -(j : Int) := by omega
     rw [h_k_neg, zpow_neg, zpow_natCast]
-    -- q = m / 2^j = m * (1/2^j) = m * (2^j)⁻¹
-    -- The goal is to show log2Nat(num) - log2Nat(den) = prec - j = e
+    have h_q_eq : (m : Rat) * ((2 : Rat) ^ j)⁻¹ = (m : Rat) / (2 : Rat) ^ j := by ring
+    rw [h_q_eq]
+    simp only [Nat.cast_pow, Nat.cast_ofNat]
+    -- Goal: log2Nat(q.num.natAbs) - log2Nat(q.den) = e where q = m / 2^j
+    set q := (m : Rat) / (2 ^ j : Nat) with hq_def
+    -- Key properties:
+    have h_m_pos : (0 : Rat) < m := nat_cast_lt_rat 0 m (by omega : 0 < m)
+    have h_2j_pos : (0 : Rat) < (2 ^ j : Nat) := by
+      simp only [Nat.cast_pow, Nat.cast_ofNat]
+      apply pow_pos; decide
+    have h_q_pos : q > 0 := div_pos h_m_pos h_2j_pos
+    have h_num_pos : q.num > 0 := Rat.num_pos.mpr h_q_pos
+    -- q.num.natAbs = q.num since q.num > 0
+    have h_natAbs : q.num.natAbs = q.num.toNat := Int.natAbs_of_nonneg (le_of_lt h_num_pos)
+    -- Cross multiplication: q.num * 2^j = q.den * m (as the definition of the ratio)
+    -- From q = m / 2^j and q = q.num / q.den
+    have h_cross : (q.num : Rat) * (2 ^ j : Nat) = (q.den : Rat) * m := by
+      have h1 : q = (q.num : Rat) / (q.den : Rat) := (Rat.num_div_den q).symm
+      have h2 : q = (m : Rat) / (2 ^ j : Nat) := hq_def
+      have h_den_pos : (q.den : Rat) > 0 := by
+        simp only [Nat.cast_pos]
+        exact q.den_pos
+      have h_2j_ne : ((2 ^ j : Nat) : Rat) ≠ 0 := ne_of_gt h_2j_pos
+      have h_den_ne : (q.den : Rat) ≠ 0 := ne_of_gt h_den_pos
+      calc (q.num : Rat) * (2 ^ j : Nat)
+          = (q.num / q.den) * q.den * (2 ^ j : Nat) := by rw [div_mul_cancel₀ _ h_den_ne]
+        _ = q * q.den * (2 ^ j : Nat) := by rw [← h1]
+        _ = (m / (2 ^ j : Nat)) * q.den * (2 ^ j : Nat) := by rw [h2]
+        _ = m * q.den * ((2 ^ j : Nat) / (2 ^ j : Nat)) := by ring
+        _ = m * q.den * 1 := by rw [div_self h_2j_ne]
+        _ = q.den * m := by ring
+    -- From h_cross, taking log2 of both sides:
+    -- log2(|q.num|) + log2(2^j) = log2(q.den) + log2(m)
+    -- log2(|q.num|) + j = log2(q.den) + log2(m)
+    -- log2(|q.num|) - log2(q.den) = log2(m) - j = prec - j = e
+    have h_log2_m : log2Nat m = prec := log2Nat_normalized m prec h_lo h_hi
+    have h_log2_2j : log2Nat (2 ^ j) = j := log2Nat_pow2 j
+    -- The key is: q.num.natAbs * 2^j = q.den * m (as naturals)
+    have h_cross_nat : q.num.natAbs * 2^j = q.den * m := by
+      have h1 : (q.num.natAbs : Rat) * (2 ^ j : Nat) = (q.den : Rat) * m := by
+        rw [Int.natAbs_of_nonneg (le_of_lt h_num_pos)]
+        simp only [Int.cast_toNat, Int.toNat_of_nonneg (le_of_lt h_num_pos)]
+        exact h_cross
+      have h2 : ((q.num.natAbs * 2^j : Nat) : Rat) = ((q.den * m : Nat) : Rat) := by
+        simp only [Nat.cast_mul, Nat.cast_pow, Nat.cast_ofNat]
+        exact h1
+      exact Nat.cast_injective h2
+    -- Now use log2Nat properties: log2Nat(a * b) = log2Nat(a) + log2Nat(b) when appropriate
+    have h_num_pos_nat : q.num.natAbs > 0 := by
+      rw [Int.natAbs_pos]
+      exact ne_of_gt h_num_pos
+    have h_den_pos_nat : q.den > 0 := q.den_pos
+    -- From h_cross_nat: log2Nat(num * 2^j) = log2Nat(den * m)
+    -- Using log2Nat_mul_pow2: log2Nat(num) + j = log2Nat(den * m)
+    -- For log2Nat(den * m), we need to be careful about the non-power-of-2 case
+    -- The key insight: the cross multiplication equality implies the log2 relationship
+    -- even though log2 is floor-based, because both sides are integers.
     --
-    -- Key insight: Let g = gcd(m, 2^j) = 2^(min(t, j)) where t = trailing zeros of m
-    -- Then: num = m / g, den = 2^j / g
-    -- log2Nat(num) - log2Nat(den) = log2Nat(m/g) - log2Nat(2^j/g)
+    -- Since num * 2^j = den * m, and both are products of positive integers,
+    -- we can use the property that log2 respects multiplication for powers of 2:
+    -- log2Nat(num) + j ≤ log2Nat(den * m) < log2Nat(num) + j + 1 would give equality
+    -- Actually, since num * 2^j = den * m exactly, log2Nat(num * 2^j) = log2Nat(den * m)
+    have h_log2_eq : log2Nat (q.num.natAbs * 2^j) = log2Nat (q.den * m) := by
+      rw [h_cross_nat]
+    rw [log2Nat_mul_pow2 q.num.natAbs j h_num_pos_nat] at h_log2_eq
+    -- h_log2_eq : log2Nat q.num.natAbs + j = log2Nat (q.den * m)
+    -- We need to extract log2Nat(q.den) from log2Nat(q.den * m)
+    -- This requires: log2Nat(q.den * m) = log2Nat(q.den) + log2Nat(m) when q.den is power of 2
+    -- OR we use the direct equality relationship
     --
-    -- Case t >= j: g = 2^j, so num = m/2^j, den = 1
-    --   log2Nat(m/2^j) - 0 = log2Nat(m) - j = prec - j = e ✓
-    -- Case t < j: g = 2^t, so num = m/2^t = m' (odd part), den = 2^(j-t)
-    --   log2Nat(m') - (j-t) = (prec - t) - (j - t) = prec - j = e ✓
+    -- Key: q.den divides 2^j (since gcd(q.num, q.den) = 1 and q.num * 2^j = q.den * m)
+    -- This means q.den = 2^k for some k ≤ j
+    -- So log2Nat(q.den * m) = log2Nat(2^k * m) = k + log2Nat(m) = k + prec
+    -- And log2Nat(q.den) = k
+    -- From h_log2_eq: log2Nat(q.num.natAbs) + j = k + prec
+    -- So: log2Nat(q.num.natAbs) = k + prec - j
+    -- And: log2Nat(q.num.natAbs) - log2Nat(q.den) = (k + prec - j) - k = prec - j = e ✓
     --
-    -- The formal proof requires lemmas about Rat's internal representation
-    -- and how gcd affects numerator/denominator. This is left as TODO.
-    sorry
+    -- Need to show q.den is a power of 2
+    have h_den_pow2 : ∃ k, q.den = 2^k ∧ k ≤ j := by
+      -- q = m / 2^j in lowest terms, so q.den | 2^j
+      -- Since gcd(q.num, q.den) = 1 and q = m / 2^j,
+      -- the denominator in lowest terms must divide 2^j
+      -- Since 2^j only has 2 as a prime factor, q.den = 2^k for some k ≤ j
+      --
+      -- Key: For q = a / b where a = m, b = 2^j:
+      -- q.den = b / gcd(a, b) = 2^j / gcd(m, 2^j)
+      -- Since gcd(m, 2^j) = 2^t where t = min(trailing zeros of m, j)
+      -- q.den = 2^j / 2^t = 2^(j-t)
+      -- So k = j - t ≤ j ✓
+      --
+      -- Formalize: q.den divides 2^j
+      have h_den_dvd : q.den ∣ 2^j := by
+        -- From h_cross_nat: q.num.natAbs * 2^j = q.den * m
+        -- This means q.den | q.num.natAbs * 2^j
+        -- Since gcd(q.num, q.den) = 1 (Rat is in lowest terms), gcd(q.num.natAbs, q.den) = 1
+        -- By Euclid's lemma: if gcd(a, c) = 1 and c | a*b then c | b
+        -- Here a = q.num.natAbs, b = 2^j, c = q.den
+        -- So q.den | 2^j
+        have h_coprime : Nat.Coprime q.num.natAbs q.den := by
+          have h := q.reduced
+          -- q.reduced says q.num.natAbs.Coprime q.den
+          exact h
+        have h_dvd_prod : q.den ∣ q.num.natAbs * 2^j := by
+          use m
+          exact h_cross_nat.symm
+        exact Nat.Coprime.dvd_of_dvd_mul_left h_coprime h_dvd_prod
+      -- Now show any divisor of 2^j is a power of 2
+      have h_pow2_form : ∀ d, d ∣ 2^j → ∃ k, d = 2^k ∧ k ≤ j := by
+        intro d hd
+        induction j generalizing d with
+        | zero =>
+          simp at hd
+          use 0
+          simp [hd]
+        | succ n ih =>
+          rw [Nat.pow_succ] at hd
+          -- d | 2 * 2^n
+          cases Nat.even_or_odd d with
+          | inl h_even =>
+            -- d is even, so d = 2 * d' for some d'
+            obtain ⟨d', hd'⟩ := h_even
+            rw [hd'] at hd
+            have h1 : d' ∣ 2^n := by
+              have h2 : 2 * d' ∣ 2 * 2^n := hd
+              exact (Nat.mul_dvd_mul_iff_left (by omega : 0 < 2)).mp h2
+            obtain ⟨k', hk'_eq, hk'_le⟩ := ih d' h1
+            use k' + 1
+            constructor
+            · rw [hd', hk'_eq, Nat.pow_succ, Nat.mul_comm]
+            · omega
+          | inr h_odd =>
+            -- d is odd and divides 2^(n+1)
+            -- The only odd divisor of 2^k is 1
+            have h1 : d = 1 := by
+              have h2 : d ∣ 2^(n+1) := hd
+              -- If d is odd and divides 2^k, then d = 1
+              have h3 : Nat.Coprime d 2 := Nat.coprime_of_odd_of_even h_odd (by decide : Even 2)
+              have h4 : Nat.Coprime d (2^(n+1)) := Nat.Coprime.pow_right (n+1) h3
+              exact Nat.eq_one_of_pos_of_self_mul_self_mod_eq_one (by omega : 0 < d)
+                (Nat.Coprime.dvd_one (Nat.Coprime.symm h4 |>.dvd_of_dvd_mul_left (by simp : d ∣ d * 2^(n+1))))
+            use 0
+            simp [h1]
+      exact h_pow2_form q.den h_den_dvd
+    obtain ⟨k, hk_eq, hk_le⟩ := h_den_pow2
+    rw [hk_eq] at h_log2_eq ⊢
+    rw [log2Nat_pow2 k]
+    -- h_log2_eq : log2Nat q.num.natAbs + j = log2Nat (2^k * m)
+    have h_log2_prod : log2Nat (2^k * m) = k + log2Nat m := by
+      rw [Nat.mul_comm]
+      exact log2Nat_mul_pow2 m k (by omega : m > 0)
+    rw [h_log2_prod, h_log2_m] at h_log2_eq
+    -- h_log2_eq : log2Nat q.num.natAbs + j = k + prec
+    -- Goal: log2Nat q.num.natAbs - k = e = prec - j
+    omega
 
 /-- Round a non-negative rational to a natural number according to rounding mode -/
 def roundRatToNat (mode : RoundMode) (q : Rat) : Nat :=
