@@ -1835,6 +1835,97 @@ theorem fdiv_antimonotonic_den (fmt : FloatFormat) (mode : RoundMode)
           div_le_div_of_nonneg_left (le_of_lt hfz_pos) hfx_pos hxy
         exact round_monotonic fmt mode _ _ hle
 
+/-- Multiplication-division cancellation: (x * y) / y = x when multiplication is exact -/
+theorem fmul_fdiv_cancel (fmt : FloatFormat) (mode : RoundMode)
+    (x y : FloatValue fmt)
+    (hx : x.isFinite) (hy : y.isFinite) (hxy : (fmul fmt mode x y).isFinite)
+    (hexact : (fmul fmt mode x y).toRat = x.toRat * y.toRat)
+    (hynz : y ≠ fzero fmt) :
+    fdiv fmt mode (fmul fmt mode x y) y = x := by
+  cases x with
+  | infinity _ => simp [FloatValue.isFinite] at hx
+  | nan => simp [FloatValue.isFinite] at hx
+  | finite fx =>
+    cases y with
+    | infinity _ => simp [FloatValue.isFinite] at hy
+    | nan => simp [FloatValue.isFinite] at hy
+    | finite fy =>
+      -- y ≠ 0 means fy.mantissa ≠ 0
+      have hfy_nz : fy.mantissa ≠ 0 := by
+        intro hcontra
+        have : (FloatValue.finite fy : FloatValue fmt) = fzero fmt := by
+          simp only [fzero]
+          congr 1
+          -- Need to show fy = the zero repr
+          -- fy.mantissa = 0 means fy.toRat = 0
+          -- But this makes y = 0, contradicting hynz
+          sorry -- This requires showing fy = zero repr when mantissa = 0
+        exact hynz this
+      have hfy_toRat_nz : fy.toRat ≠ 0 := FloatRepr.toRat_ne_zero fy hfy_nz
+      -- x * y = round(fx.toRat * fy.toRat)
+      simp only [fmul] at hxy hexact ⊢
+      -- Since x * y is finite, the round gives a finite result
+      -- Get the FloatRepr for x * y
+      cases hprod : round fmt mode (fx.toRat * fy.toRat) with
+      | infinity _ => simp [FloatValue.isFinite, hprod] at hxy
+      | nan => simp [FloatValue.isFinite, hprod] at hxy
+      | finite fxy =>
+        -- hexact says fxy.toRat = fx.toRat * fy.toRat
+        simp only [hprod, FloatValue.toRat] at hexact
+        -- (x * y) / y = round(fxy.toRat / fy.toRat)
+        simp only [hprod, fdiv, hfy_nz, ↓reduceIte]
+        -- = round((fx.toRat * fy.toRat) / fy.toRat)  [by hexact]
+        -- = round(fx.toRat)  [by division cancellation]
+        -- = .finite fx  [by round_idempotent]
+        have hdiv : fxy.toRat / fy.toRat = fx.toRat := by
+          rw [hexact]
+          exact mul_div_cancel_right₀ fx.toRat hfy_toRat_nz
+        rw [hdiv]
+        exact round_idempotent mode fx
+
+/-- Division-multiplication cancellation: (x / y) * y = x when division is exact -/
+theorem fdiv_fmul_cancel (fmt : FloatFormat) (mode : RoundMode)
+    (x y : FloatValue fmt)
+    (hx : x.isFinite) (hy : y.isFinite) (hxy : (fdiv fmt mode x y).isFinite)
+    (hexact : (fdiv fmt mode x y).toRat = x.toRat / y.toRat)
+    (hynz : y ≠ fzero fmt) :
+    fmul fmt mode (fdiv fmt mode x y) y = x := by
+  cases x with
+  | infinity _ => simp [FloatValue.isFinite] at hx
+  | nan => simp [FloatValue.isFinite] at hx
+  | finite fx =>
+    cases y with
+    | infinity _ => simp [FloatValue.isFinite] at hy
+    | nan => simp [FloatValue.isFinite] at hy
+    | finite fy =>
+      have hfy_nz : fy.mantissa ≠ 0 := by
+        intro hcontra
+        have : (FloatValue.finite fy : FloatValue fmt) = fzero fmt := by
+          simp only [fzero]
+          congr 1
+          sorry -- Same as above
+        exact hynz this
+      have hfy_toRat_nz : fy.toRat ≠ 0 := FloatRepr.toRat_ne_zero fy hfy_nz
+      -- x / y = round(fx.toRat / fy.toRat)
+      simp only [fdiv, hfy_nz, ↓reduceIte] at hxy hexact ⊢
+      -- Since x / y is finite, the round gives a finite result
+      cases hquot : round fmt mode (fx.toRat / fy.toRat) with
+      | infinity _ => simp [FloatValue.isFinite, hquot] at hxy
+      | nan => simp [FloatValue.isFinite, hquot] at hxy
+      | finite fq =>
+        -- hexact says fq.toRat = fx.toRat / fy.toRat
+        simp only [hquot, FloatValue.toRat] at hexact
+        -- (x / y) * y = round(fq.toRat * fy.toRat)
+        simp only [hquot, fmul, hfy_nz, ↓reduceIte]
+        -- = round((fx.toRat / fy.toRat) * fy.toRat)  [by hexact]
+        -- = round(fx.toRat)  [by multiplication cancellation]
+        -- = .finite fx  [by round_idempotent]
+        have hmul : fq.toRat * fy.toRat = fx.toRat := by
+          rw [hexact]
+          exact div_mul_cancel₀ fx.toRat hfy_toRat_nz
+        rw [hmul]
+        exact round_idempotent mode fx
+
 -- THEOREM: Error bounds follow from the definition of rounding
 theorem round_relative_error (fmt : FloatFormat) (q : Rat) (hq : q ≠ 0) :
     ∃ δ : Rat, |δ| ≤ halfUlp fmt ∧
@@ -2146,8 +2237,12 @@ instance : FloatSpec (FloatValue binary64) where
     | infinity s => simp [FloatValue.isFinite] at hfin
     | nan => simp [FloatValue.isFinite] at hfin
 
-  mul_div_cancel := fun _ _ _ _ _ _ _ => by sorry
-  div_mul_cancel := fun _ _ _ _ _ _ _ => by sorry
+  mul_div_cancel := fun x y hx hy hxy hexact hynz => by
+    simp only [HMul.hMul, Mul.mul, HDiv.hDiv, Div.div]
+    exact fmul_fdiv_cancel binary64 defaultMode x y hx hy hxy hexact hynz
+  div_mul_cancel := fun x y hx hy hxy hexact hynz => by
+    simp only [HMul.hMul, Mul.mul, HDiv.hDiv, Div.div]
+    exact fdiv_fmul_cancel binary64 defaultMode x y hx hy hxy hexact hynz
 
   add_relative_error := fun x y hx hy hxy => by
     sorry -- Error bound proof
@@ -2384,8 +2479,12 @@ instance : FloatSpec (FloatValue binary32) where
       exact fdiv_self binary32 defaultMode f hnz
     | infinity s => simp [FloatValue.isFinite] at hfin
     | nan => simp [FloatValue.isFinite] at hfin
-  mul_div_cancel := fun _ _ _ _ _ _ _ => by sorry
-  div_mul_cancel := fun _ _ _ _ _ _ _ => by sorry
+  mul_div_cancel := fun x y hx hy hxy hexact hynz => by
+    simp only [HMul.hMul, Mul.mul, HDiv.hDiv, Div.div]
+    exact fmul_fdiv_cancel binary32 defaultMode x y hx hy hxy hexact hynz
+  div_mul_cancel := fun x y hx hy hxy hexact hynz => by
+    simp only [HMul.hMul, Mul.mul, HDiv.hDiv, Div.div]
+    exact fdiv_fmul_cancel binary32 defaultMode x y hx hy hxy hexact hynz
   add_relative_error := fun x y hx hy hxy => by sorry
   mul_relative_error := fun x y hx hy hxy => by sorry
   div_relative_error := fun x y hx hy hxy hnz => by sorry
