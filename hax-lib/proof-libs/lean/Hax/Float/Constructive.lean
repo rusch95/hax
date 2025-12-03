@@ -1850,38 +1850,52 @@ theorem fmul_fdiv_cancel (fmt : FloatFormat) (mode : RoundMode)
     | infinity _ => simp [FloatValue.isFinite] at hy
     | nan => simp [FloatValue.isFinite] at hy
     | finite fy =>
-      -- y ≠ 0 means fy.mantissa ≠ 0
-      have hfy_nz : fy.mantissa ≠ 0 := by
-        intro hcontra
-        have : (FloatValue.finite fy : FloatValue fmt) = fzero fmt := by
-          simp only [fzero]
-          congr 1
-          -- Need to show fy = the zero repr
-          -- fy.mantissa = 0 means fy.toRat = 0
-          -- But this makes y = 0, contradicting hynz
-          sorry -- This requires showing fy = zero repr when mantissa = 0
-        exact hynz this
-      have hfy_toRat_nz : fy.toRat ≠ 0 := FloatRepr.toRat_ne_zero fy hfy_nz
-      -- x * y = round(fx.toRat * fy.toRat)
-      simp only [fmul] at hxy hexact ⊢
-      -- Since x * y is finite, the round gives a finite result
-      -- Get the FloatRepr for x * y
-      cases hprod : round fmt mode (fx.toRat * fy.toRat) with
-      | infinity _ => simp [FloatValue.isFinite, hprod] at hxy
-      | nan => simp [FloatValue.isFinite, hprod] at hxy
-      | finite fxy =>
-        -- hexact says fxy.toRat = fx.toRat * fy.toRat
-        simp only [hprod, FloatValue.toRat] at hexact
-        -- (x * y) / y = round(fxy.toRat / fy.toRat)
-        simp only [hprod, fdiv, hfy_nz, ↓reduceIte]
-        -- = round((fx.toRat * fy.toRat) / fy.toRat)  [by hexact]
-        -- = round(fx.toRat)  [by division cancellation]
-        -- = .finite fx  [by round_idempotent]
-        have hdiv : fxy.toRat / fy.toRat = fx.toRat := by
-          rw [hexact]
-          exact mul_div_cancel_right₀ fx.toRat hfy_toRat_nz
-        rw [hdiv]
-        exact round_idempotent mode fx
+      -- Handle the case where fy.mantissa = 0
+      by_cases hfy_nz : fy.mantissa = 0
+      · -- Case: fy.mantissa = 0, derive contradiction
+        exfalso
+        -- fy.toRat = 0 when mantissa = 0
+        have hfy_zero : fy.toRat = 0 := by
+          simp only [FloatRepr.toRat, hfy_nz, Nat.cast_zero, mul_zero, zero_mul]
+        -- x * y = round(fx.toRat * 0) = round(0)
+        have hprod_zero : fx.toRat * fy.toRat = 0 := by simp [hfy_zero]
+        -- round(0) = fzero, which has mantissa 0
+        have hprod_eq : fmul fmt mode (.finite fx) (.finite fy) = fzero fmt := by
+          simp only [fmul, hprod_zero, round_zero]
+        -- So (x*y)/y = fzero/(.finite fy) where fy.mantissa = 0
+        -- From fdiv: if fy.mantissa = 0 and fx.mantissa = 0, result is nan
+        have hdiv_nan : fdiv fmt mode (fzero fmt) (.finite fy) = .nan := by
+          simp only [fdiv, fzero, hfy_nz, ↓reduceIte]
+        -- So the goal fdiv ... = .finite fx becomes .nan = .finite fx
+        -- which is impossible
+        have hgoal_eq : fdiv fmt mode (fmul fmt mode (.finite fx) (.finite fy)) (.finite fy) = .nan := by
+          rw [hprod_eq, hdiv_nan]
+        -- But .nan ≠ .finite fx
+        have : FloatValue.nan (α := fmt) ≠ .finite fx := by
+          intro h; cases h
+        exact this hgoal_eq
+      · -- Case: fy.mantissa ≠ 0
+        have hfy_toRat_nz : fy.toRat ≠ 0 := FloatRepr.toRat_ne_zero fy hfy_nz
+        -- x * y = round(fx.toRat * fy.toRat)
+        simp only [fmul] at hxy hexact ⊢
+        -- Since x * y is finite, the round gives a finite result
+        -- Get the FloatRepr for x * y
+        cases hprod : round fmt mode (fx.toRat * fy.toRat) with
+        | infinity _ => simp [FloatValue.isFinite, hprod] at hxy
+        | nan => simp [FloatValue.isFinite, hprod] at hxy
+        | finite fxy =>
+          -- hexact says fxy.toRat = fx.toRat * fy.toRat
+          simp only [hprod, FloatValue.toRat] at hexact
+          -- (x * y) / y = round(fxy.toRat / fy.toRat)
+          simp only [hprod, fdiv, hfy_nz, ↓reduceIte]
+          -- = round((fx.toRat * fy.toRat) / fy.toRat)  [by hexact]
+          -- = round(fx.toRat)  [by division cancellation]
+          -- = .finite fx  [by round_idempotent]
+          have hdiv : fxy.toRat / fy.toRat = fx.toRat := by
+            rw [hexact]
+            exact mul_div_cancel_right₀ fx.toRat hfy_toRat_nz
+          rw [hdiv]
+          exact round_idempotent mode fx
 
 /-- Division-multiplication cancellation: (x / y) * y = x when division is exact -/
 theorem fdiv_fmul_cancel (fmt : FloatFormat) (mode : RoundMode)
@@ -1898,33 +1912,38 @@ theorem fdiv_fmul_cancel (fmt : FloatFormat) (mode : RoundMode)
     | infinity _ => simp [FloatValue.isFinite] at hy
     | nan => simp [FloatValue.isFinite] at hy
     | finite fy =>
-      have hfy_nz : fy.mantissa ≠ 0 := by
-        intro hcontra
-        have : (FloatValue.finite fy : FloatValue fmt) = fzero fmt := by
-          simp only [fzero]
-          congr 1
-          sorry -- Same as above
-        exact hynz this
-      have hfy_toRat_nz : fy.toRat ≠ 0 := FloatRepr.toRat_ne_zero fy hfy_nz
-      -- x / y = round(fx.toRat / fy.toRat)
-      simp only [fdiv, hfy_nz, ↓reduceIte] at hxy hexact ⊢
-      -- Since x / y is finite, the round gives a finite result
-      cases hquot : round fmt mode (fx.toRat / fy.toRat) with
-      | infinity _ => simp [FloatValue.isFinite, hquot] at hxy
-      | nan => simp [FloatValue.isFinite, hquot] at hxy
-      | finite fq =>
-        -- hexact says fq.toRat = fx.toRat / fy.toRat
-        simp only [hquot, FloatValue.toRat] at hexact
-        -- (x / y) * y = round(fq.toRat * fy.toRat)
-        simp only [hquot, fmul, hfy_nz, ↓reduceIte]
-        -- = round((fx.toRat / fy.toRat) * fy.toRat)  [by hexact]
-        -- = round(fx.toRat)  [by multiplication cancellation]
-        -- = .finite fx  [by round_idempotent]
-        have hmul : fq.toRat * fy.toRat = fx.toRat := by
-          rw [hexact]
-          exact div_mul_cancel₀ fx.toRat hfy_toRat_nz
-        rw [hmul]
-        exact round_idempotent mode fx
+      -- Handle the case where fy.mantissa = 0
+      by_cases hfy_nz : fy.mantissa = 0
+      · -- Case: fy.mantissa = 0, derive contradiction from hxy
+        exfalso
+        -- When fy.mantissa = 0, fdiv gives either nan or infinity
+        have hdiv_not_finite : ¬(fdiv fmt mode (.finite fx) (.finite fy)).isFinite := by
+          simp only [fdiv, hfy_nz, ↓reduceIte]
+          by_cases hfx : fx.mantissa = 0
+          · simp only [hfx, ↓reduceIte, FloatValue.isFinite]
+          · simp only [hfx, ↓reduceIte, FloatValue.isFinite]
+        exact hdiv_not_finite hxy
+      · -- Case: fy.mantissa ≠ 0
+        have hfy_toRat_nz : fy.toRat ≠ 0 := FloatRepr.toRat_ne_zero fy hfy_nz
+        -- x / y = round(fx.toRat / fy.toRat)
+        simp only [fdiv, hfy_nz, ↓reduceIte] at hxy hexact ⊢
+        -- Since x / y is finite, the round gives a finite result
+        cases hquot : round fmt mode (fx.toRat / fy.toRat) with
+        | infinity _ => simp [FloatValue.isFinite, hquot] at hxy
+        | nan => simp [FloatValue.isFinite, hquot] at hxy
+        | finite fq =>
+          -- hexact says fq.toRat = fx.toRat / fy.toRat
+          simp only [hquot, FloatValue.toRat] at hexact
+          -- (x / y) * y = round(fq.toRat * fy.toRat)
+          simp only [hquot, fmul, hfy_nz, ↓reduceIte]
+          -- = round((fx.toRat / fy.toRat) * fy.toRat)  [by hexact]
+          -- = round(fx.toRat)  [by multiplication cancellation]
+          -- = .finite fx  [by round_idempotent]
+          have hmul : fq.toRat * fy.toRat = fx.toRat := by
+            rw [hexact]
+            exact div_mul_cancel₀ fx.toRat hfy_toRat_nz
+          rw [hmul]
+          exact round_idempotent mode fx
 
 /-- Sterbenz Lemma: exact subtraction for nearby values.
     When y/2 ≤ x ≤ 2y (with both positive and finite), subtraction is exact.
