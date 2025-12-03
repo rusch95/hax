@@ -776,4 +776,30 @@ example : (fzero fmt).toRat = 0 := toRat_zero fmt
 
 end Examples
 
+/-! # Examples using FloatSpec Instance -/
+
+section FloatSpecExamples
+
+-- These examples use the FloatSpec typeclass with our binary64 instance
+variable (x y z : FloatValue binary64)
+
+-- Commutativity via FloatSpec
+example : x + y = y + x := Float.Spec.FloatSpec.add_comm x y
+example : x * y = y * x := Float.Spec.FloatSpec.mul_comm x y
+
+-- Identity via FloatSpec
+example : 0 + x = x := Float.Spec.FloatSpec.add_zero_left x
+
+-- Negation via FloatSpec
+example : -(-x) = x := Float.Spec.FloatSpec.neg_exact x
+
+-- Subtraction definition via FloatSpec
+example : x - y = x + (-y) := Float.Spec.FloatSpec.sub_eq_add_neg x y
+
+-- Ordering via FloatSpec
+example : x ≤ y → y ≤ z → x ≤ z := Float.Spec.FloatSpec.le_trans x y z
+example : x < y ↔ (x ≤ y ∧ ¬(y ≤ x)) := Float.Spec.FloatSpec.lt_iff_le_not_le x y
+
+end FloatSpecExamples
+
 end Float.Constructive
