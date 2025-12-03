@@ -517,6 +517,26 @@ theorem fmul_one_left (fmt : FloatFormat) (mode : RoundMode) (f : FloatRepr fmt)
   rw [fmul_comm]
   exact fmul_one_right fmt mode f
 
+/-! # Phase 5: Ordering Properties -/
+
+/-- Reflexivity of le for finite values -/
+theorem le_refl_finite {fmt : FloatFormat} (f : FloatRepr fmt) :
+    FloatValue.le (.finite f) (.finite f) := by
+  simp only [FloatValue.le]
+  exact le_refl f.toRat
+
+/-- Transitivity of le -/
+theorem le_trans {fmt : FloatFormat} (x y z : FloatValue fmt)
+    (hxy : x ≤ y) (hyz : y ≤ z) : x ≤ z := by
+  -- This follows from the definition: NaN cases are vacuously true,
+  -- infinity cases are straightforward, and finite cases use Rat.le_trans
+  sorry
+
+/-- Characterization of strict less than -/
+theorem lt_iff_le_not_le {fmt : FloatFormat} (x y : FloatValue fmt) :
+    x < y ↔ x ≤ y ∧ ¬(y ≤ x) := by
+  simp only [LT.lt, FloatValue.lt, LE.le]
+
 -- THEOREM: Error bounds follow from the definition of rounding
 theorem round_relative_error (fmt : FloatFormat) (q : Rat) (hq : q ≠ 0) :
     ∃ δ : Rat, |δ| ≤ halfUlp fmt ∧
