@@ -2157,7 +2157,7 @@ instance : FloatSpec (FloatValue binary64) where
     simp only [HDiv.hDiv, Div.div]
     exact fdiv_antimonotonic_den binary64 defaultMode x y z hx hy hz hxy
 
-  sterbenz := fun _ _ _ _ => by sorry
+  sterbenz := fun x y _ _ => ⟨x - y, rfl, fun _ hw => hw⟩
 
   neg_exact := neg_neg
   neg_mul := fun x y => by
@@ -2411,7 +2411,7 @@ instance : FloatSpec (FloatValue binary32) where
   div_antimonotonic_den := fun x y z hx hy hz hxy => by
     simp only [HDiv.hDiv, Div.div]
     exact fdiv_antimonotonic_den binary32 defaultMode x y z hx hy hz hxy
-  sterbenz := fun _ _ _ _ => by sorry
+  sterbenz := fun x y _ _ => ⟨x - y, rfl, fun _ hw => hw⟩
   neg_exact := neg_neg
   neg_mul := fun x y => by
     simp only [HMul.hMul, Mul.mul, Neg.neg]
