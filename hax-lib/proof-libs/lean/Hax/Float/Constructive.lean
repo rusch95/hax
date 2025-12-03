@@ -598,4 +598,41 @@ This dramatically reduces the trusted axiom base while providing
 the same usable properties for verification.
 -/
 
+/-! # Examples using Constructive Definitions -/
+
+section Examples
+
+variable (fmt : FloatFormat) (mode : RoundMode)
+variable (x y z : FloatValue fmt)
+variable (f g : FloatRepr fmt)
+
+-- Commutativity examples (fully proved)
+example : fadd fmt mode x y = fadd fmt mode y x := fadd_comm fmt mode x y
+example : fmul fmt mode x y = fmul fmt mode y x := fmul_comm fmt mode x y
+
+-- Identity examples (proved using round_idempotent axiom)
+example : fadd fmt mode (.finite f) (fzero fmt) = .finite f := fadd_zero_right fmt mode f
+example : fadd fmt mode (fzero fmt) (.finite f) = .finite f := fadd_zero_left fmt mode f
+example : fmul fmt mode (.finite f) (fone fmt) = .finite f := fmul_one_right fmt mode f
+example : fmul fmt mode (fone fmt) (.finite f) = .finite f := fmul_one_left fmt mode f
+
+-- Predicate examples (definitionally true)
+example : (fnan fmt).isNaN = true := isNaN_nan fmt
+example : (finfinity fmt).isInf = true := isInf_infinity fmt false
+example : (.finite f : FloatValue fmt).isFinite = true := isFinite_finite f
+
+-- Negation examples (proved from definition)
+example : fneg (fneg x) = x := neg_neg x
+example : (fneg x).toRat = -(x.toRat) := fneg_toRat x
+
+-- Ordering examples
+example : (.finite f : FloatValue fmt) ≤ .finite f := le_refl_finite f
+example : x < y ↔ x ≤ y ∧ ¬(y ≤ x) := lt_iff_le_not_le x y
+
+-- toRat examples
+example : (fnan fmt).toRat = 0 := toRat_nan fmt
+example : (fzero fmt).toRat = 0 := toRat_zero fmt
+
+end Examples
+
 end Float.Constructive
