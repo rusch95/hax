@@ -739,6 +739,100 @@ instance : FloatSpec (FloatValue binary64) where
   div_relative_error := fun x y hx hy hxy hnz => by
     sorry -- Error bound proof
 
+open Float.Spec in
+/-- FloatSpec instance for binary32 (single precision) -/
+instance : FloatSpec (FloatValue binary32) where
+  epsilon := epsilon binary32
+
+  nan := fnan binary32
+  infinity := finfinity binary32
+
+  is_nan := FloatValue.isNaN
+  is_inf := FloatValue.isInf
+  is_finite := FloatValue.isFinite
+
+  is_nan_nan := isNaN_nan binary32
+  is_inf_infinity := isInf_infinity binary32 false
+  not_nan_infinity := by simp [finfinity, FloatValue.isNaN]
+  not_inf_nan := by simp [fnan, FloatValue.isInf]
+
+  finite_def := fun x => by
+    constructor
+    · intro h
+      cases x with
+      | finite f => simp [FloatValue.isNaN, FloatValue.isInf]
+      | infinity s => simp [FloatValue.isFinite] at h
+      | nan => simp [FloatValue.isFinite] at h
+    · intro ⟨hnan, hinf⟩
+      cases x with
+      | finite f => rfl
+      | infinity s => simp [FloatValue.isInf] at hinf
+      | nan => simp [FloatValue.isNaN] at hnan
+
+  is_finite_zero := rfl
+  is_finite_one := rfl
+  is_finite_neg := fun x hfin => by
+    cases x with
+    | finite f => simp [Neg.neg, fneg, FloatValue.isFinite]
+    | infinity s => simp [FloatValue.isFinite] at hfin
+    | nan => simp [FloatValue.isFinite] at hfin
+
+  mul_zero_finite := fun x _ => by
+    simp only [HMul.hMul, Mul.mul, Zero.zero]
+    simp only [fmul, fzero, FloatRepr.toRat]
+    simp [round]
+    sorry
+
+  to_rat := FloatValue.toRat
+  to_rat_nan := toRat_nan binary32
+  to_rat_inf := toRat_infinity binary32 false
+  to_rat_zero := toRat_zero binary32
+  to_rat_inj := fun x y hx hy heq => by sorry
+  to_rat_neg := fneg_toRat
+
+  add_comm := fun x y => by
+    simp only [HAdd.hAdd, Add.add]
+    exact fadd_comm binary32 defaultMode x y
+
+  mul_comm := fun x y => by
+    simp only [HMul.hMul, Mul.mul]
+    exact fmul_comm binary32 defaultMode x y
+
+  add_zero_left := fun x => by
+    simp only [HAdd.hAdd, Add.add]
+    cases x with
+    | finite f => exact fadd_zero_left binary32 defaultMode f
+    | infinity s => rfl
+    | nan => rfl
+
+  mul_one_left := fun x => by
+    simp only [HMul.hMul, Mul.mul]
+    cases x with
+    | finite f => exact fmul_one_left binary32 defaultMode f
+    | infinity s => simp only [fmul]; sorry
+    | nan => rfl
+
+  add_monotonic_left := fun _ _ _ _ _ => by sorry
+  mul_monotonic_pos := fun _ _ _ _ _ => by sorry
+  div_monotonic_num := fun _ _ _ _ _ => by sorry
+  div_antimonotonic_den := fun _ _ _ _ _ _ _ => by sorry
+  sterbenz := fun _ _ _ _ => by sorry
+  neg_exact := neg_neg
+  neg_mul := fun x y => by simp only [HMul.hMul, Mul.mul, Neg.neg]; sorry
+  neg_le_neg := fun _ _ => by sorry
+  sub_eq_add_neg := fun x y => by simp only [HSub.hSub, Sub.sub, HAdd.hAdd, Add.add, Neg.neg]; rfl
+  add_neg_self := fun x hfin => by simp only [HAdd.hAdd, Add.add, Neg.neg, Zero.zero]; sorry
+  le_trans := le_trans
+  le_antisymm := fun _ _ _ _ => by sorry
+  le_total := fun _ _ _ _ => by sorry
+  lt_iff_le_not_le := lt_iff_le_not_le
+  div_self := fun _ _ _ => by sorry
+  mul_div_cancel := fun _ _ _ _ _ _ _ => by sorry
+  div_mul_cancel := fun _ _ _ _ _ _ _ => by sorry
+  add_relative_error := fun x y hx hy hxy => by sorry
+  mul_relative_error := fun x y hx hy hxy => by sorry
+  div_relative_error := fun x y hx hy hxy hnz => by sorry
+
 /-! # Examples using Constructive Definitions -/
 
 section Examples
@@ -801,5 +895,31 @@ example : x ≤ y → y ≤ z → x ≤ z := Float.Spec.FloatSpec.le_trans x y z
 example : x < y ↔ (x ≤ y ∧ ¬(y ≤ x)) := Float.Spec.FloatSpec.lt_iff_le_not_le x y
 
 end FloatSpecExamples
+
+/-! # Examples using binary32 FloatSpec Instance -/
+
+section FloatSpec32Examples
+
+-- These examples use the FloatSpec typeclass with our binary32 instance
+variable (x y z : FloatValue binary32)
+
+-- Commutativity via FloatSpec
+example : x + y = y + x := Float.Spec.FloatSpec.add_comm x y
+example : x * y = y * x := Float.Spec.FloatSpec.mul_comm x y
+
+-- Identity via FloatSpec
+example : 0 + x = x := Float.Spec.FloatSpec.add_zero_left x
+
+-- Negation via FloatSpec
+example : -(-x) = x := Float.Spec.FloatSpec.neg_exact x
+
+-- Subtraction definition via FloatSpec
+example : x - y = x + (-y) := Float.Spec.FloatSpec.sub_eq_add_neg x y
+
+-- Ordering via FloatSpec
+example : x ≤ y → y ≤ z → x ≤ z := Float.Spec.FloatSpec.le_trans x y z
+example : x < y ↔ (x ≤ y ∧ ¬(y ≤ x)) := Float.Spec.FloatSpec.lt_iff_le_not_le x y
+
+end FloatSpec32Examples
 
 end Float.Constructive
