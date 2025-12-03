@@ -111,12 +111,348 @@ def FloatValue.isNonZero {fmt : FloatFormat} : FloatValue fmt → Prop
   | .infinity _ => True
   | .nan => True
 
+/-! ## Helper lemmas for canonical uniqueness -/
+
+/-- Odd numbers are not divisible by 2 -/
+theorem odd_not_two_dvd (n : Nat) (h : n % 2 = 1) : ¬(2 ∣ n) := by
+  intro ⟨k, hk⟩
+  have : n % 2 = 0 := by simp [hk, Nat.mul_mod_right]
+  omega
+
+/-- Key lemma: if m * 2^e = n * 2^f with m odd and n odd, then m = n and e = f -/
+theorem odd_pow2_unique {m n : Nat} {e f : Int} (hm_pos : m ≠ 0) (hn_pos : n ≠ 0)
+    (hm_odd : m % 2 = 1) (hn_odd : n % 2 = 1)
+    (heq : (m : Rat) * (2 : Rat)^e = (n : Rat) * (2 : Rat)^f) : m = n ∧ e = f := by
+  -- Case split on e vs f
+  rcases Int.lt_trichotomy e f with he_lt | he_eq | he_gt
+  · -- Case e < f: leads to contradiction
+    -- From m * 2^e = n * 2^f with e < f, we get m = n * 2^(f-e)
+    -- But m is odd and 2^(f-e) is even (since f > e), contradiction
+    exfalso
+    have h2_pos : (0 : Rat) < 2 := by norm_num
+    have h2e_pos : (0 : Rat) < (2 : Rat)^e := zpow_pos h2_pos e
+    have h2e_ne : (2 : Rat)^e ≠ 0 := ne_of_gt h2e_pos
+    -- m = n * 2^(f-e)
+    have heq' : (m : Rat) = (n : Rat) * (2 : Rat)^(f - e) := by
+      have h1 : (m : Rat) * (2 : Rat)^e / (2 : Rat)^e = (n : Rat) * (2 : Rat)^f / (2 : Rat)^e := by
+        rw [heq]
+      simp only [mul_div_assoc, div_self h2e_ne, mul_one] at h1
+      rw [← zpow_sub₀ (by norm_num : (2 : Rat) ≠ 0)] at h1
+      exact h1
+    -- f - e > 0, so 2^(f-e) ≥ 2
+    have hfe_pos : 0 < f - e := by omega
+    -- Since (m : Rat) = (n : Rat) * 2^(f-e) and f-e > 0, we have m = n * 2^(f-e).toNat as Nats
+    -- First note that 2^(f-e) = 2^(f-e).toNat since f-e > 0
+    have hfe_nat : (f - e).toNat = (f - e) := Int.toNat_of_nonneg (le_of_lt hfe_pos)
+    have h2pow : (2 : Rat)^(f - e) = (2^(f - e).toNat : Nat) := by
+      rw [← Int.coe_nat_pow, hfe_nat]
+      simp only [Nat.cast_pow, Nat.cast_ofNat]
+      rfl
+    rw [h2pow] at heq'
+    -- Now we have (m : Rat) = (n : Rat) * (2^(f-e).toNat : Nat) = (n * 2^(f-e).toNat : Nat)
+    have heq_nat : (m : Rat) = ((n * 2^(f - e).toNat) : Nat) := by
+      rw [heq']
+      simp only [Nat.cast_mul, Nat.cast_pow, Nat.cast_ofNat]
+    have heq_nat' : m = n * 2^(f - e).toNat := Nat.cast_injective heq_nat
+    -- Now 2 divides m since 2^(f-e).toNat ≥ 2 when f-e ≥ 1
+    have hfe_ge1 : (f - e).toNat ≥ 1 := by
+      rw [hfe_nat]
+      omega
+    have h2pow_ge2 : 2^(f - e).toNat ≥ 2 := by
+      calc 2^(f - e).toNat ≥ 2^1 := Nat.pow_le_pow_right (by omega) hfe_ge1
+        _ = 2 := by norm_num
+    have h_dvd : 2 ∣ m := by
+      rw [heq_nat']
+      -- 2^k = 2 * 2^(k-1) when k ≥ 1
+      have h2pow_eq : 2^(f - e).toNat = 2 * 2^((f - e).toNat - 1) := by
+        have : (f - e).toNat = (f - e).toNat - 1 + 1 := by omega
+        conv_lhs => rw [this]
+        ring
+      rw [h2pow_eq, Nat.mul_comm n, Nat.mul_assoc]
+      exact Nat.dvd_mul_right 2 _
+    exact odd_not_two_dvd m hm_odd h_dvd
+  · -- Case e = f: then m = n directly
+    subst he_eq
+    have h2e_ne : (2 : Rat)^e ≠ 0 := by
+      apply ne_of_gt
+      exact zpow_pos (by norm_num : (0 : Rat) < 2) e
+    have : (m : Rat) = (n : Rat) := by
+      have := mul_right_cancel₀ h2e_ne heq
+      exact this
+    constructor
+    · exact Nat.cast_injective this
+    · rfl
+  · -- Case e > f: symmetric to e < f
+    exfalso
+    have h2_pos : (0 : Rat) < 2 := by norm_num
+    have h2f_pos : (0 : Rat) < (2 : Rat)^f := zpow_pos h2_pos f
+    have h2f_ne : (2 : Rat)^f ≠ 0 := ne_of_gt h2f_pos
+    -- n = m * 2^(e-f)
+    have heq' : (n : Rat) = (m : Rat) * (2 : Rat)^(e - f) := by
+      have h1 : (n : Rat) * (2 : Rat)^f / (2 : Rat)^f = (m : Rat) * (2 : Rat)^e / (2 : Rat)^f := by
+        rw [← heq]
+      simp only [mul_div_assoc, div_self h2f_ne, mul_one] at h1
+      rw [← zpow_sub₀ (by norm_num : (2 : Rat) ≠ 0)] at h1
+      exact h1
+    have hef_pos : 0 < e - f := by omega
+    have hef_nat : (e - f).toNat = (e - f) := Int.toNat_of_nonneg (le_of_lt hef_pos)
+    have h2pow : (2 : Rat)^(e - f) = (2^(e - f).toNat : Nat) := by
+      rw [← Int.coe_nat_pow, hef_nat]
+      simp only [Nat.cast_pow, Nat.cast_ofNat]
+      rfl
+    rw [h2pow] at heq'
+    have heq_nat : (n : Rat) = ((m * 2^(e - f).toNat) : Nat) := by
+      rw [heq']
+      simp only [Nat.cast_mul, Nat.cast_pow, Nat.cast_ofNat]
+    have heq_nat' : n = m * 2^(e - f).toNat := Nat.cast_injective heq_nat
+    have hef_ge1 : (e - f).toNat ≥ 1 := by
+      rw [hef_nat]
+      omega
+    have h_dvd : 2 ∣ n := by
+      rw [heq_nat']
+      -- 2^k = 2 * 2^(k-1) when k ≥ 1
+      have h2pow_eq : 2^(e - f).toNat = 2 * 2^((e - f).toNat - 1) := by
+        have : (e - f).toNat = (e - f).toNat - 1 + 1 := by omega
+        conv_lhs => rw [this]
+        ring
+      rw [h2pow_eq, Nat.mul_comm m, Nat.mul_assoc]
+      exact Nat.dvd_mul_right 2 _
+    exact odd_not_two_dvd n hn_odd h_dvd
+
+/-- Sign is determined by the sign of toRat -/
+theorem sign_from_toRat {fmt : FloatFormat} (f : FloatRepr fmt) (hf_nz : f.mantissa ≠ 0) :
+    f.sign = (f.toRat < 0) := by
+  simp only [FloatRepr.toRat]
+  have hm_pos : (0 : Rat) < f.mantissa := Nat.cast_pos.mpr (Nat.pos_of_ne_zero hf_nz)
+  have h2_pos : (0 : Rat) < 2 := by norm_num
+  have hscale_pos : (0 : Rat) < (2 : Rat) ^ (f.exponent - (fmt.prec - 1 : Int)) :=
+    zpow_pos h2_pos _
+  cases f.sign with
+  | false =>
+    simp only [ite_false, one_mul, Bool.false_eq_decide_iff, not_lt]
+    exact le_of_lt (mul_pos hm_pos hscale_pos)
+  | true =>
+    simp only [ite_true, neg_one_mul, Bool.true_eq_decide_iff, Left.neg_neg_iff]
+    exact mul_pos hm_pos hscale_pos
+
 /-- Canonical non-zero representations with equal toRat have equal representations -/
 theorem FloatRepr.canonical_unique {fmt : FloatFormat} (f g : FloatRepr fmt)
     (hf : f.isCanonical) (hg : g.isCanonical)
     (hf_nz : f.mantissa ≠ 0) (hg_nz : g.mantissa ≠ 0)
     (heq : f.toRat = g.toRat) : f.sign = g.sign ∧ f.mantissa = g.mantissa ∧ f.exponent = g.exponent := by
-  sorry  -- Complex proof about uniqueness of canonical representations
+  -- First, prove signs are equal
+  have hsign : f.sign = g.sign := by
+    rw [sign_from_toRat f hf_nz, sign_from_toRat g hg_nz, heq]
+  constructor
+  · exact hsign
+  -- Now prove mantissa and exponent are equal
+  -- Expand toRat
+  simp only [FloatRepr.toRat] at heq
+  -- Since signs are equal, the sign factors are equal
+  have hsign_factor : (if f.sign then (-1 : Rat) else 1) = (if g.sign then -1 else 1) := by
+    simp [hsign]
+  -- So mantissa * scale are equal (in absolute value)
+  have habs : (f.mantissa : Rat) * (2 : Rat)^(f.exponent - (fmt.prec - 1)) =
+              (g.mantissa : Rat) * (2 : Rat)^(g.exponent - (fmt.prec - 1)) := by
+    cases hfs : f.sign <;> cases hgs : g.sign <;> simp_all [mul_comm, mul_assoc]
+  -- Simplify: let e_f = f.exponent - (prec - 1), e_g = g.exponent - (prec - 1)
+  -- We have: f.mantissa * 2^e_f = g.mantissa * 2^e_g
+  -- Canonical non-zero means: normalized (mantissa ≥ 2^(prec-1)) or denormalized (exp=emin, odd mantissa)
+  -- Exclude zero case (handled by hf_nz, hg_nz)
+  have hf_canon : f.mantissa ≥ 2^(fmt.prec - 1) ∨ (f.exponent = fmt.emin ∧ f.mantissa % 2 = 1) := by
+    rcases hf with hf_zero | hf_norm | hf_denorm
+    · exact absurd hf_zero hf_nz
+    · left; exact hf_norm
+    · right; exact hf_denorm
+  have hg_canon : g.mantissa ≥ 2^(fmt.prec - 1) ∨ (g.exponent = fmt.emin ∧ g.mantissa % 2 = 1) := by
+    rcases hg with hg_zero | hg_norm | hg_denorm
+    · exact absurd hg_zero hg_nz
+    · left; exact hg_norm
+    · right; exact hg_denorm
+  -- Case analysis on normalized vs denormalized
+  rcases hf_canon with hf_norm | ⟨hf_emin, hf_odd⟩ <;> rcases hg_canon with hg_norm | ⟨hg_emin, hg_odd⟩
+  · -- Both normalized: mantissa ∈ [2^(prec-1), 2^prec - 1]
+    -- Show exponents must be equal, then mantissas equal
+    -- If e_f < e_g: f.mantissa = g.mantissa * 2^(e_g - e_f), but g.mantissa ≥ 2^(prec-1)
+    -- so f.mantissa ≥ 2^prec when e_g - e_f ≥ 1, contradicting f.mantissa < 2^prec
+    rcases Int.lt_trichotomy f.exponent g.exponent with he_lt | he_eq | he_gt
+    · -- f.exponent < g.exponent
+      exfalso
+      have h2_pos : (0 : Rat) < 2 := by norm_num
+      have hef_pos : 0 < g.exponent - (fmt.prec - 1) - (f.exponent - (fmt.prec - 1)) := by omega
+      have hef_eq : g.exponent - (fmt.prec - 1) - (f.exponent - (fmt.prec - 1)) = g.exponent - f.exponent := by ring
+      have h2fe_ne : (2 : Rat)^(f.exponent - (fmt.prec - 1)) ≠ 0 := ne_of_gt (zpow_pos h2_pos _)
+      have heq' : (f.mantissa : Rat) = (g.mantissa : Rat) * (2 : Rat)^(g.exponent - f.exponent) := by
+        have h1 : (f.mantissa : Rat) * (2 : Rat)^(f.exponent - (fmt.prec - 1)) / (2 : Rat)^(f.exponent - (fmt.prec - 1)) =
+                  (g.mantissa : Rat) * (2 : Rat)^(g.exponent - (fmt.prec - 1)) / (2 : Rat)^(f.exponent - (fmt.prec - 1)) := by rw [habs]
+        simp only [mul_div_assoc, div_self h2fe_ne, mul_one] at h1
+        rw [← zpow_sub₀ (by norm_num : (2 : Rat) ≠ 0)] at h1
+        convert h1 using 2
+        ring
+      have hgf_ge1 : (g.exponent - f.exponent).toNat ≥ 1 := by
+        have : g.exponent - f.exponent ≥ 1 := by omega
+        omega
+      have h2pow_rat : (2 : Rat)^(g.exponent - f.exponent) = (2^(g.exponent - f.exponent).toNat : Nat) := by
+        have hpos : 0 ≤ g.exponent - f.exponent := by omega
+        rw [← Int.coe_nat_pow, Int.toNat_of_nonneg hpos]
+        simp
+      rw [h2pow_rat] at heq'
+      have heq_nat : (f.mantissa : Rat) = ((g.mantissa * 2^(g.exponent - f.exponent).toNat) : Nat) := by
+        rw [heq']; simp
+      have heq_nat' : f.mantissa = g.mantissa * 2^(g.exponent - f.exponent).toNat := Nat.cast_injective heq_nat
+      -- g.mantissa ≥ 2^(prec-1), so f.mantissa ≥ 2^(prec-1) * 2 = 2^prec when exp diff ≥ 1
+      have h_bound : f.mantissa ≥ 2^fmt.prec := by
+        calc f.mantissa = g.mantissa * 2^(g.exponent - f.exponent).toNat := heq_nat'
+          _ ≥ 2^(fmt.prec - 1) * 2^(g.exponent - f.exponent).toNat := by
+            apply Nat.mul_le_mul_right
+            exact hg_norm
+          _ ≥ 2^(fmt.prec - 1) * 2^1 := by
+            apply Nat.mul_le_mul_left
+            exact Nat.pow_le_pow_right (by omega) hgf_ge1
+          _ = 2^fmt.prec := by
+            rw [← Nat.pow_add]
+            congr 1
+            omega
+      exact Nat.not_lt.mpr h_bound f.mantissa_bound
+    · -- f.exponent = g.exponent: then mantissas equal
+      constructor
+      · have h2e_ne : (2 : Rat)^(f.exponent - (fmt.prec - 1)) ≠ 0 := ne_of_gt (zpow_pos (by norm_num) _)
+        have heq_sub : g.exponent - (fmt.prec - 1) = f.exponent - (fmt.prec - 1) := by omega
+        rw [heq_sub] at habs
+        exact Nat.cast_injective (mul_right_cancel₀ h2e_ne habs)
+      · exact he_eq
+    · -- f.exponent > g.exponent: symmetric
+      exfalso
+      have h2_pos : (0 : Rat) < 2 := by norm_num
+      have h2ge_ne : (2 : Rat)^(g.exponent - (fmt.prec - 1)) ≠ 0 := ne_of_gt (zpow_pos h2_pos _)
+      have heq' : (g.mantissa : Rat) = (f.mantissa : Rat) * (2 : Rat)^(f.exponent - g.exponent) := by
+        have h1 : (g.mantissa : Rat) * (2 : Rat)^(g.exponent - (fmt.prec - 1)) / (2 : Rat)^(g.exponent - (fmt.prec - 1)) =
+                  (f.mantissa : Rat) * (2 : Rat)^(f.exponent - (fmt.prec - 1)) / (2 : Rat)^(g.exponent - (fmt.prec - 1)) := by rw [← habs]
+        simp only [mul_div_assoc, div_self h2ge_ne, mul_one] at h1
+        rw [← zpow_sub₀ (by norm_num : (2 : Rat) ≠ 0)] at h1
+        convert h1 using 2
+        ring
+      have hfg_ge1 : (f.exponent - g.exponent).toNat ≥ 1 := by
+        have : f.exponent - g.exponent ≥ 1 := by omega
+        omega
+      have h2pow_rat : (2 : Rat)^(f.exponent - g.exponent) = (2^(f.exponent - g.exponent).toNat : Nat) := by
+        have hpos : 0 ≤ f.exponent - g.exponent := by omega
+        rw [← Int.coe_nat_pow, Int.toNat_of_nonneg hpos]
+        simp
+      rw [h2pow_rat] at heq'
+      have heq_nat : (g.mantissa : Rat) = ((f.mantissa * 2^(f.exponent - g.exponent).toNat) : Nat) := by
+        rw [heq']; simp
+      have heq_nat' : g.mantissa = f.mantissa * 2^(f.exponent - g.exponent).toNat := Nat.cast_injective heq_nat
+      have h_bound : g.mantissa ≥ 2^fmt.prec := by
+        calc g.mantissa = f.mantissa * 2^(f.exponent - g.exponent).toNat := heq_nat'
+          _ ≥ 2^(fmt.prec - 1) * 2^(f.exponent - g.exponent).toNat := by
+            apply Nat.mul_le_mul_right
+            exact hf_norm
+          _ ≥ 2^(fmt.prec - 1) * 2^1 := by
+            apply Nat.mul_le_mul_left
+            exact Nat.pow_le_pow_right (by omega) hfg_ge1
+          _ = 2^fmt.prec := by
+            rw [← Nat.pow_add]
+            congr 1
+            omega
+      exact Nat.not_lt.mpr h_bound g.mantissa_bound
+  · -- f normalized, g denormalized
+    -- f.mantissa ≥ 2^(prec-1), g.exponent = emin, g.mantissa is odd
+    -- Case analysis on f.exponent vs emin
+    rcases Int.lt_trichotomy f.exponent fmt.emin with hf_lt | hf_eq | hf_gt
+    · -- f.exponent < emin: impossible by exponent_bound
+      exact absurd hf_lt (not_lt.mpr f.exponent_bound.1)
+    · -- f.exponent = emin: exponents equal, mantissas equal from habs
+      constructor
+      · have h2e_ne : (2 : Rat)^(f.exponent - (fmt.prec - 1)) ≠ 0 := ne_of_gt (zpow_pos (by norm_num) _)
+        have heq_sub : g.exponent - (fmt.prec - 1) = f.exponent - (fmt.prec - 1) := by
+          rw [hg_emin, hf_eq]
+        rw [heq_sub] at habs
+        exact Nat.cast_injective (mul_right_cancel₀ h2e_ne habs)
+      · rw [hf_eq, hg_emin]
+    · -- f.exponent > emin: contradiction
+      -- f.mantissa * 2^(f.exponent - emin) = g.mantissa, but f.mantissa ≥ 2^(prec-1)
+      -- so g.mantissa ≥ 2^(prec-1) * 2 = 2^prec, contradicting g.mantissa_bound
+      exfalso
+      have h2_pos : (0 : Rat) < 2 := by norm_num
+      have h2g_ne : (2 : Rat)^(g.exponent - (fmt.prec - 1)) ≠ 0 := ne_of_gt (zpow_pos h2_pos _)
+      have heq' : (g.mantissa : Rat) = (f.mantissa : Rat) * (2 : Rat)^(f.exponent - g.exponent) := by
+        have h1 : (g.mantissa : Rat) * (2 : Rat)^(g.exponent - (fmt.prec - 1)) / (2 : Rat)^(g.exponent - (fmt.prec - 1)) =
+                  (f.mantissa : Rat) * (2 : Rat)^(f.exponent - (fmt.prec - 1)) / (2 : Rat)^(g.exponent - (fmt.prec - 1)) := by rw [← habs]
+        simp only [mul_div_assoc, div_self h2g_ne, mul_one] at h1
+        rw [← zpow_sub₀ (by norm_num : (2 : Rat) ≠ 0)] at h1
+        convert h1 using 2; ring
+      have hfg_pos : 0 < f.exponent - g.exponent := by rw [hg_emin]; omega
+      have hfg_ge1 : (f.exponent - g.exponent).toNat ≥ 1 := by
+        have : f.exponent - g.exponent ≥ 1 := by omega
+        omega
+      have h2pow_rat : (2 : Rat)^(f.exponent - g.exponent) = (2^(f.exponent - g.exponent).toNat : Nat) := by
+        have hpos : 0 ≤ f.exponent - g.exponent := le_of_lt hfg_pos
+        rw [← Int.coe_nat_pow, Int.toNat_of_nonneg hpos]
+        simp
+      rw [h2pow_rat] at heq'
+      have heq_nat : (g.mantissa : Rat) = ((f.mantissa * 2^(f.exponent - g.exponent).toNat) : Nat) := by
+        rw [heq']; simp
+      have heq_nat' : g.mantissa = f.mantissa * 2^(f.exponent - g.exponent).toNat := Nat.cast_injective heq_nat
+      have h_bound : g.mantissa ≥ 2^fmt.prec := by
+        calc g.mantissa = f.mantissa * 2^(f.exponent - g.exponent).toNat := heq_nat'
+          _ ≥ 2^(fmt.prec - 1) * 2^(f.exponent - g.exponent).toNat := by
+            apply Nat.mul_le_mul_right; exact hf_norm
+          _ ≥ 2^(fmt.prec - 1) * 2^1 := by
+            apply Nat.mul_le_mul_left
+            exact Nat.pow_le_pow_right (by omega) hfg_ge1
+          _ = 2^fmt.prec := by rw [← Nat.pow_add]; congr 1; omega
+      exact Nat.not_lt.mpr h_bound g.mantissa_bound
+  · -- f denormalized, g normalized: symmetric
+    rcases Int.lt_trichotomy g.exponent fmt.emin with hg_lt | hg_eq | hg_gt
+    · exact absurd hg_lt (not_lt.mpr g.exponent_bound.1)
+    · constructor
+      · have h2e_ne : (2 : Rat)^(f.exponent - (fmt.prec - 1)) ≠ 0 := ne_of_gt (zpow_pos (by norm_num) _)
+        have heq_sub : g.exponent - (fmt.prec - 1) = f.exponent - (fmt.prec - 1) := by
+          rw [hf_emin, hg_eq]
+        rw [heq_sub] at habs
+        exact Nat.cast_injective (mul_right_cancel₀ h2e_ne habs)
+      · rw [hf_emin, hg_eq]
+    · exfalso
+      have h2_pos : (0 : Rat) < 2 := by norm_num
+      have h2f_ne : (2 : Rat)^(f.exponent - (fmt.prec - 1)) ≠ 0 := ne_of_gt (zpow_pos h2_pos _)
+      have heq' : (f.mantissa : Rat) = (g.mantissa : Rat) * (2 : Rat)^(g.exponent - f.exponent) := by
+        have h1 : (f.mantissa : Rat) * (2 : Rat)^(f.exponent - (fmt.prec - 1)) / (2 : Rat)^(f.exponent - (fmt.prec - 1)) =
+                  (g.mantissa : Rat) * (2 : Rat)^(g.exponent - (fmt.prec - 1)) / (2 : Rat)^(f.exponent - (fmt.prec - 1)) := by rw [habs]
+        simp only [mul_div_assoc, div_self h2f_ne, mul_one] at h1
+        rw [← zpow_sub₀ (by norm_num : (2 : Rat) ≠ 0)] at h1
+        convert h1 using 2; ring
+      have hgf_pos : 0 < g.exponent - f.exponent := by rw [hf_emin]; omega
+      have hgf_ge1 : (g.exponent - f.exponent).toNat ≥ 1 := by
+        have : g.exponent - f.exponent ≥ 1 := by omega
+        omega
+      have h2pow_rat : (2 : Rat)^(g.exponent - f.exponent) = (2^(g.exponent - f.exponent).toNat : Nat) := by
+        have hpos : 0 ≤ g.exponent - f.exponent := le_of_lt hgf_pos
+        rw [← Int.coe_nat_pow, Int.toNat_of_nonneg hpos]
+        simp
+      rw [h2pow_rat] at heq'
+      have heq_nat : (f.mantissa : Rat) = ((g.mantissa * 2^(g.exponent - f.exponent).toNat) : Nat) := by
+        rw [heq']; simp
+      have heq_nat' : f.mantissa = g.mantissa * 2^(g.exponent - f.exponent).toNat := Nat.cast_injective heq_nat
+      have h_bound : f.mantissa ≥ 2^fmt.prec := by
+        calc f.mantissa = g.mantissa * 2^(g.exponent - f.exponent).toNat := heq_nat'
+          _ ≥ 2^(fmt.prec - 1) * 2^(g.exponent - f.exponent).toNat := by
+            apply Nat.mul_le_mul_right; exact hg_norm
+          _ ≥ 2^(fmt.prec - 1) * 2^1 := by
+            apply Nat.mul_le_mul_left
+            exact Nat.pow_le_pow_right (by omega) hgf_ge1
+          _ = 2^fmt.prec := by rw [← Nat.pow_add]; congr 1; omega
+      exact Nat.not_lt.mpr h_bound f.mantissa_bound
+  · -- Both denormalized: exponent = emin, both mantissas odd
+    -- Apply odd_pow2_unique directly
+    have hexp_eq : f.exponent = g.exponent := by rw [hf_emin, hg_emin]
+    constructor
+    · -- From habs with equal exponents, mantissas equal
+      have h2e_ne : (2 : Rat)^(f.exponent - (fmt.prec - 1)) ≠ 0 := ne_of_gt (zpow_pos (by norm_num) _)
+      have heq_sub : g.exponent - (fmt.prec - 1) = f.exponent - (fmt.prec - 1) := by omega
+      rw [heq_sub] at habs
+      exact Nat.cast_injective (mul_right_cancel₀ h2e_ne habs)
+    · exact hexp_eq
 
 /-! # Conversion to Rational -/
 
