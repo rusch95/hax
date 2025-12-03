@@ -469,6 +469,19 @@ def FloatValue.toRat {fmt : FloatFormat} : FloatValue fmt → Rat
   | .infinity _ => 0
   | .nan => 0
 
+/-- Non-zero mantissa implies non-zero toRat -/
+theorem FloatRepr.toRat_ne_zero {fmt : FloatFormat} (f : FloatRepr fmt)
+    (hm : f.mantissa ≠ 0) : f.toRat ≠ 0 := by
+  simp only [FloatRepr.toRat]
+  -- toRat = sign_factor * mantissa * scale
+  -- sign_factor ∈ {-1, 1}, mantissa ≠ 0, scale = 2^k ≠ 0
+  have hsign : (if f.sign then (-1 : Rat) else 1) ≠ 0 := by
+    cases f.sign <;> simp
+  have hmant : (f.mantissa : Rat) ≠ 0 := Nat.cast_ne_zero.mpr hm
+  have hscale : (2 : Rat) ^ (f.exponent - (fmt.prec - 1 : Int)) ≠ 0 :=
+    zpow_ne_zero _ (by norm_num : (2 : Rat) ≠ 0)
+  exact mul_ne_zero (mul_ne_zero hsign hmant) hscale
+
 /-! # Rounding -/
 
 /-- Rounding mode -/
@@ -1272,18 +1285,30 @@ For a complete proof, we would need either:
 1. Semantic equality that identifies +0 = -0
 2. Modified fneg that doesn't create -0
 3. Precondition excluding signed zeros
+
+With canonical hypotheses, this is provable using canonical_unique.
 -/
 theorem le_antisymm_finite {fmt : FloatFormat} (fx fy : FloatRepr fmt)
     (hxy : FloatValue.le (.finite fx) (.finite fy))
     (hyx : FloatValue.le (.finite fy) (.finite fx))
+    (hfx_can : fx.isCanonical) (hfy_can : fy.isCanonical)
     (hfx_nz : fx.mantissa ≠ 0) :
     (.finite fx : FloatValue fmt) = .finite fy := by
   simp only [FloatValue.le] at hxy hyx
   -- From fx.toRat <= fy.toRat and fy.toRat <= fx.toRat, we get fx.toRat = fy.toRat
   have heq : fx.toRat = fy.toRat := le_antisymm hxy hyx
-  -- For non-zero mantissa, toRat determines the representation uniquely
-  -- This requires showing FloatRepr representation is canonical
-  sorry
+  -- Since fx.mantissa ≠ 0, fx.toRat ≠ 0, so fy.toRat ≠ 0, so fy.mantissa ≠ 0
+  have hfy_nz : fy.mantissa ≠ 0 := by
+    intro hfy_zero
+    have : fy.toRat = 0 := by simp [FloatRepr.toRat, hfy_zero]
+    have : fx.toRat = 0 := by rw [heq, this]
+    exact FloatRepr.toRat_ne_zero fx hfx_nz this
+  -- Use canonical_unique
+  have ⟨hsign, hmant, hexp⟩ := FloatRepr.canonical_unique fx fy hfx_can hfy_can hfx_nz hfy_nz heq
+  congr
+  · exact hsign
+  · exact hmant
+  · exact hexp
 
 /-- Antisymmetry using semantic equivalence (fully provable!) -/
 theorem le_antisymm_equiv {fmt : FloatFormat} (x y : FloatValue fmt)
@@ -1570,12 +1595,8 @@ instance : FloatSpec (FloatValue binary64) where
       simp only [FloatValue.isNonZero] at hnz
       simp only [Zero.zero, FloatValue.equiv, fzero, FloatRepr.toRat]
       intro heq
-      -- heq : f.toRat = 0
-      -- But if f.mantissa ≠ 0, then f.toRat ≠ 0
-      simp only [FloatRepr.toRat] at heq
-      -- f.toRat = sign_factor * mantissa * scale
-      -- For mantissa ≠ 0 and scale ≠ 0, this is non-zero
-      sorry  -- Need: mantissa ≠ 0 → toRat ≠ 0
+      -- heq : f.toRat = 0, but f.mantissa ≠ 0 implies f.toRat ≠ 0
+      exact FloatRepr.toRat_ne_zero f hnz heq
     | infinity s => simp [FloatValue.isFinite] at hfin
     | nan => simp [FloatValue.isFinite] at hfin
 
@@ -1740,19 +1761,9 @@ instance : FloatSpec (FloatValue binary64) where
     cases x with
     | finite f =>
       show fdiv binary64 defaultMode (.finite f) (.finite f) = fone binary64
-      -- Need to show f.mantissa ≠ 0 from hnz
-      -- Note: hnz : .finite f ≠ fzero = .finite ⟨false, 0, emin, ...⟩
-      -- This is a bit subtle due to signed zeros, but for non-zero toRat, mantissa ≠ 0
-      by_cases h : f.mantissa = 0
-      · -- If mantissa = 0, then toRat = 0
-        have htoRat_zero : f.toRat = 0 := by
-          simp only [FloatRepr.toRat]
-          simp [h]
-        -- But then .finite f would be considered "zero" semantically
-        -- The precondition hnz should exclude this case
-        -- For now, we use sorry for the signed zero edge case
-        sorry
-      · exact fdiv_self binary64 defaultMode f h
+      -- hnz : is_nonzero (.finite f) = f.mantissa ≠ 0
+      simp only [FloatValue.isNonZero] at hnz
+      exact fdiv_self binary64 defaultMode f hnz
     | infinity s => simp [FloatValue.isFinite] at hfin
     | nan => simp [FloatValue.isFinite] at hfin
 
@@ -1838,8 +1849,8 @@ instance : FloatSpec (FloatValue binary32) where
       simp only [FloatValue.isNonZero] at hnz
       simp only [Zero.zero, FloatValue.equiv, fzero, FloatRepr.toRat]
       intro heq
-      simp only [FloatRepr.toRat] at heq
-      sorry  -- Need: mantissa ≠ 0 → toRat ≠ 0
+      -- heq : f.toRat = 0, but f.mantissa ≠ 0 implies f.toRat ≠ 0
+      exact FloatRepr.toRat_ne_zero f hnz heq
     | infinity s => simp [FloatValue.isFinite] at hfin
     | nan => simp [FloatValue.isFinite] at hfin
 
@@ -1983,13 +1994,9 @@ instance : FloatSpec (FloatValue binary32) where
     cases x with
     | finite f =>
       show fdiv binary32 defaultMode (.finite f) (.finite f) = fone binary32
-      by_cases h : f.mantissa = 0
-      · -- Signed zero edge case
-        have htoRat_zero : f.toRat = 0 := by
-          simp only [FloatRepr.toRat]
-          simp [h]
-        sorry
-      · exact fdiv_self binary32 defaultMode f h
+      -- hnz : is_nonzero (.finite f) = f.mantissa ≠ 0
+      simp only [FloatValue.isNonZero] at hnz
+      exact fdiv_self binary32 defaultMode f hnz
     | infinity s => simp [FloatValue.isFinite] at hfin
     | nan => simp [FloatValue.isFinite] at hfin
   mul_div_cancel := fun _ _ _ _ _ _ _ => by sorry
