@@ -915,6 +915,42 @@ theorem normalizeMantissa_value_le (cfg_prec : Nat) (mantissa : Nat) (exp : Int)
           rename_i h_not_small
           simp
 
+/-- After normalization with non-zero result, the value m * 2^(e - prec) is in [2^e, 2^(e+1)).
+    This is because m ∈ [2^prec, 2^(prec+1)), so:
+    m * 2^(e - prec) ∈ [2^prec * 2^(e-prec), 2^(prec+1) * 2^(e-prec)) = [2^e, 2^(e+1)) -/
+theorem normalizeMantissa_in_band (cfg_prec : Nat) (mantissa : Nat) (exp : Int) (fuel : Nat)
+    (h_pos : 0 < mantissa) (h_fuel : fuel ≥ mantissa + cfg_prec) :
+    let (m, e) := normalizeMantissa cfg_prec mantissa exp fuel
+    m = 0 ∨ ((2 : Rat) ^ e ≤ (m : Rat) * (2 : Rat) ^ (e - cfg_prec) ∧
+             (m : Rat) * (2 : Rat) ^ (e - cfg_prec) < (2 : Rat) ^ (e + 1)) := by
+  -- First, use normalizeMantissa_isNormalized to get m = 0 or m ∈ [2^prec, 2^(prec+1))
+  have h_norm := normalizeMantissa_isNormalized cfg_prec mantissa exp fuel h_fuel
+  let (m, e) := normalizeMantissa cfg_prec mantissa exp fuel
+  cases h_norm with
+  | inl h_zero => left; exact h_zero
+  | inr h_range =>
+    right
+    obtain ⟨h_lo, h_hi⟩ := h_range
+    constructor
+    · -- 2^e ≤ m * 2^(e - prec)
+      calc (2 : Rat) ^ e
+          = (2 : Rat) ^ cfg_prec * (2 : Rat) ^ (e - cfg_prec) := by
+              rw [← zpow_natCast, ← zpow_add₀ (by decide : (2 : Rat) ≠ 0)]
+              congr 1; omega
+        _ ≤ (m : Rat) * (2 : Rat) ^ (e - cfg_prec) := by
+              apply mul_le_mul_of_nonneg_right
+              · exact nat_cast_le_rat _ _ h_lo
+              · apply zpow_nonneg; decide
+    · -- m * 2^(e - prec) < 2^(e + 1)
+      calc (m : Rat) * (2 : Rat) ^ (e - cfg_prec)
+          < (2 : Rat) ^ (cfg_prec + 1) * (2 : Rat) ^ (e - cfg_prec) := by
+              apply mul_lt_mul_of_pos_right
+              · exact nat_cast_lt_rat _ _ h_hi
+              · apply zpow_pos; decide
+        _ = (2 : Rat) ^ (e + 1) := by
+              rw [← zpow_natCast, ← zpow_add₀ (by decide : (2 : Rat) ≠ 0)]
+              congr 1; omega
+
 /-- roundRatToNat on a natural number returns that number -/
 theorem roundRatToNat_of_nat (mode : RoundMode) (n : Nat) :
     roundRatToNat mode (n : Rat) = n := by
@@ -1406,7 +1442,26 @@ theorem roundToFloat_pos_monotonic (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
   -- Combined with roundRatToNat bounds and the structure of the pipeline,
   -- monotonicity follows
 
-  sorry  -- The full proof requires careful tracking through all pipeline stages
+  -- KEY MONOTONICITY ARGUMENT:
+  -- After normalization, m * 2^(exp - prec) is in [2^exp, 2^(exp+1)) since m ∈ [2^prec, 2^(prec+1))
+  -- For x ≤ y, we compare their final exponents:
+  -- Case 1: exp_x < exp_y => r(x) < 2^(exp_x+1) ≤ 2^exp_y ≤ r(y), so r(x) < r(y) ✓
+  -- Case 2: exp_x = exp_y => Same exponent band, so m_x ≤ m_y by floor monotonicity ✓
+  -- Case 3: exp_x > exp_y => r(x) ≥ 2^exp_x > 2^(exp_y+1) > r(y), but this contradicts
+  --         x ≤ y because we'd have r(x) ≤ x ≤ y but r(x) > r(y), meaning
+  --         r(y) < r(x) ≤ x ≤ y. But the pipeline produces r(y) from y,
+  --         and since y ≥ r(x) ≥ 2^exp_x ≥ 2^(exp_y+1), the normalization for y
+  --         would have produced exp ≥ exp_y+1, not exp_y. Contradiction!
+  --
+  -- The formal proof requires showing that normalization produces the correct exponent
+  -- based on the actual value, which the helper lemmas support.
+
+  -- For the complete formal proof, we need to show:
+  -- 1. The final exp is determined by which "band" [2^k, 2^(k+1)) the value falls into
+  -- 2. For x ≤ y, either they're in the same band (and m_x ≤ m_y) or x is in a lower band
+  -- Both cases give r(x) ≤ r(y)
+
+  sorry  -- Requires proving exponent consistency through normalization
 
 /-- Rounding preserves order.
 
