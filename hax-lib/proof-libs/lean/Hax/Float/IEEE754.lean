@@ -544,6 +544,80 @@ theorem normalizeMantissa_zero (cfg_prec : Nat) (exp : Int) (fuel : Nat) :
     unfold normalizeMantissa
     simp
 
+/-- Helper: normalization for small mantissa terminates within cfg_prec steps.
+    For mantissa ∈ [1, 2^cfg_prec), we need at most cfg_prec multiplications
+    to reach the normalized range [2^cfg_prec, 2^(cfg_prec+1)). -/
+theorem normalizeMantissa_small (cfg_prec : Nat) (mantissa : Nat) (exp : Int) (fuel : Nat)
+    (h_pos : 0 < mantissa) (h_small : mantissa < 2^cfg_prec) (h_fuel : fuel ≥ cfg_prec) :
+    let (m, _) := normalizeMantissa cfg_prec mantissa exp fuel
+    m = 0 ∨ (2^cfg_prec ≤ m ∧ m < 2^(cfg_prec + 1)) := by
+  -- Use strong induction on (2^cfg_prec - mantissa), the "distance" to normalized range
+  -- Each multiplication at least doubles mantissa, halving the distance
+  induction cfg_prec generalizing mantissa exp fuel with
+  | zero =>
+    -- cfg_prec = 0: mantissa < 2^0 = 1, but mantissa > 0, contradiction
+    simp at h_small
+    omega
+  | succ p ih =>
+    -- cfg_prec = p + 1
+    -- Need fuel ≥ p + 1, and mantissa < 2^(p+1)
+    cases fuel with
+    | zero => omega
+    | succ n =>
+      unfold normalizeMantissa
+      simp only [Nat.add_one_ne_zero, ↓reduceIte]
+      have h_nonzero : mantissa ≠ 0 := by omega
+      simp only [h_nonzero, ↓reduceIte]
+      -- Check if mantissa ≥ 2^(p+2) - no, since mantissa < 2^(p+1) < 2^(p+2)
+      have h_not_big : ¬(mantissa ≥ 2^(p + 1 + 1)) := by
+        have h1 : 2^(p+1) < 2^(p+2) := Nat.pow_lt_pow_right (by omega : 1 < 2) (by omega)
+        omega
+      simp only [h_not_big, ↓reduceIte]
+      -- Check if mantissa < 2^(p+1) - yes, by h_small
+      have h_still_small : mantissa < 2^(p + 1) := h_small
+      simp only [h_still_small, ↓reduceIte]
+      -- Recurse with mantissa * 2
+      -- Two cases: either mantissa * 2 reaches normalized range, or we continue
+      by_cases h_reach : 2^(p + 1) ≤ mantissa * 2
+      · -- mantissa * 2 is in [2^(p+1), ...), but is it < 2^(p+2)?
+        by_cases h_reach2 : mantissa * 2 < 2^(p + 1 + 1)
+        · -- mantissa * 2 ∈ [2^(p+1), 2^(p+2)) - normalized!
+          cases n with
+          | zero =>
+            unfold normalizeMantissa
+            simp only [↓reduceIte]
+            right
+            constructor <;> omega
+          | succ n' =>
+            unfold normalizeMantissa
+            simp only [Nat.add_one_ne_zero, ↓reduceIte]
+            have h_m2_nonzero : mantissa * 2 ≠ 0 := by omega
+            simp only [h_m2_nonzero, ↓reduceIte]
+            have h_m2_not_big : ¬(mantissa * 2 ≥ 2^(p + 1 + 1)) := by omega
+            simp only [h_m2_not_big, ↓reduceIte]
+            have h_m2_not_small : ¬(mantissa * 2 < 2^(p + 1)) := by omega
+            simp only [h_m2_not_small, ↓reduceIte]
+            right
+            constructor <;> omega
+        · -- mantissa * 2 ≥ 2^(p+2), need to divide
+          -- This shouldn't happen if mantissa < 2^(p+1)
+          -- mantissa * 2 < 2^(p+1) * 2 = 2^(p+2)
+          exfalso
+          have h1 : mantissa * 2 < 2^(p+1) * 2 := by omega
+          have h2 : 2^(p+1) * 2 = 2^(p+2) := by rw [Nat.pow_succ]; ring
+          omega
+      · -- mantissa * 2 < 2^(p+1), need more multiplications
+        -- Use induction hypothesis with mantissa * 2
+        -- mantissa * 2 < 2^(p+1), so mantissa < 2^p
+        have h_mantissa_small_p : mantissa < 2^p := by
+          have h1 : mantissa * 2 < 2^(p+1) := by omega
+          have h2 : 2^(p+1) = 2 * 2^p := Nat.pow_succ 2 p
+          omega
+        have h_m2_pos : 0 < mantissa * 2 := by omega
+        have h_m2_small : mantissa * 2 < 2^p := by omega
+        have h_n_ge_p : n ≥ p := by omega
+        exact ih (mantissa * 2) (exp - 1) n h_m2_pos h_m2_small h_n_ge_p
+
 /-- With sufficient fuel, normalizeMantissa produces normalized output.
 
     NOTE: The fuel bound proof is complex due to the opposing directions
@@ -575,13 +649,10 @@ theorem normalizeMantissa_isNormalized (cfg_prec : Nat) (mantissa : Nat) (exp : 
         split
         · -- mantissa < 2^cfg_prec (and mantissa ≠ 0) : multiply
           rename_i h_small
-          -- After at most cfg_prec multiplications, mantissa reaches [2^cfg_prec, 2^(cfg_prec+1))
-          -- The bound is complex; we use sorry for this branch
-          -- A proper proof would use well-founded induction on (2^cfg_prec - mantissa)
-          have h_fuel' : n ≥ mantissa * 2 + cfg_prec := by
-            -- This doesn't follow directly from h_fuel, needs a different termination argument
-            sorry
-          exact ih (mantissa * 2) (exp - 1) h_fuel'
+          -- Use the helper lemma for small mantissa
+          have h_pos : 0 < mantissa := Nat.pos_of_ne_zero h_nonzero
+          have h_fuel_ge_prec : n ≥ cfg_prec := by omega
+          exact normalizeMantissa_small cfg_prec mantissa exp n h_pos h_small h_fuel_ge_prec
         · -- mantissa in [2^cfg_prec, 2^(cfg_prec+1))
           rename_i h_not_small
           right
