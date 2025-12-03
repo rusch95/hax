@@ -108,6 +108,44 @@ theorem nat_cast_nonneg (n : Nat) : (0 : Rat) ≤ n := by
     have h2 : (0 : Rat) ≤ 1 := by decide
     exact add_nonneg ih h2
 
+/-- Nat.cast preserves ≤ for Rat -/
+theorem nat_cast_le_rat (n m : Nat) (h : n ≤ m) : (n : Rat) ≤ (m : Rat) := by
+  induction m generalizing n with
+  | zero =>
+    have hn : n = 0 := Nat.le_zero.mp h
+    simp [hn]
+  | succ k ih =>
+    cases Nat.lt_or_eq_of_le h with
+    | inl hlt =>
+      have hle : n ≤ k := Nat.lt_succ_iff.mp hlt
+      have h1 := ih n hle
+      have h2 : (k : Rat) ≤ (k + 1 : Nat) := by
+        simp only [Nat.cast_add, Nat.cast_one]
+        have : (0 : Rat) ≤ 1 := by decide
+        exact le_add_of_nonneg_right this
+      exact le_trans h1 h2
+    | inr heq =>
+      rw [heq]
+
+/-- Nat.cast preserves < for Rat -/
+theorem nat_cast_lt_rat (n m : Nat) (h : n < m) : (n : Rat) < (m : Rat) := by
+  induction m generalizing n with
+  | zero => exact absurd h (Nat.not_lt_zero n)
+  | succ k ih =>
+    cases Nat.lt_succ_iff_lt_or_eq.mp h with
+    | inl hlt =>
+      have h1 := ih n hlt
+      have h2 : (k : Rat) < (k + 1 : Nat) := by
+        simp only [Nat.cast_add, Nat.cast_one]
+        have : (0 : Rat) < 1 := by decide
+        exact lt_add_of_pos_right _ this
+      exact lt_trans h1 h2
+    | inr heq =>
+      rw [← heq]
+      simp only [Nat.cast_add, Nat.cast_one]
+      have : (0 : Rat) < 1 := by decide
+      exact lt_add_of_pos_right _ this
+
 /-- Converting zero gives zero -/
 theorem toRat_zero (cfg_prec : Nat) (cfg_emin : Int) :
     (FloatRepr.zero cfg_emin).toRat cfg_prec = 0 := by
@@ -682,7 +720,105 @@ theorem to_rat_inj (cfg_prec : Nat) (x y : FloatRepr)
   -- But m1 < 2^(k+1), contradiction. By symmetry, e1 > e2 also leads to contradiction.
   -- Therefore e1 = e2, and then m1 = m2 follows from cancellation.
   have h_exp_eq : x.exponent = y.exponent := by
-    sorry
+    by_contra h_ne
+    rcases Int.lt_trichotomy x.exponent y.exponent with h_lt | h_eq' | h_gt
+    · -- Case: x.exponent < y.exponent
+      have h_diff_pos : 0 < y.exponent - x.exponent := Int.sub_pos.mpr h_lt
+      have h_diff_ge_one : 1 ≤ y.exponent - x.exponent := h_diff_pos
+      have h2_ne : (2 : Rat) ≠ 0 := by decide
+      have h_zpow_x_ne : (2 : Rat)^(x.exponent - cfg_prec) ≠ 0 := zpow_ne_zero _ h2_ne
+      -- Derive: x.mantissa = y.mantissa * 2^(y.exp - x.exp)
+      have h_m_eq : (x.mantissa : Rat) = (y.mantissa : Rat) * (2 : Rat)^(y.exponent - x.exponent) := by
+        have h1 : (x.mantissa : Rat) * (2 : Rat)^(x.exponent - cfg_prec) /
+                  (2 : Rat)^(x.exponent - cfg_prec) =
+                  (y.mantissa : Rat) * (2 : Rat)^(y.exponent - cfg_prec) /
+                  (2 : Rat)^(x.exponent - cfg_prec) := by rw [h_base_eq]
+        simp only [mul_div_assoc, div_self h_zpow_x_ne, mul_one] at h1
+        -- h1 is now: x.mantissa = y.mantissa * (2^(y.exp-prec) / 2^(x.exp-prec))
+        -- Simplify: 2^a / 2^b = 2^(a-b)
+        have h2 : (2 : Rat)^(y.exponent - cfg_prec) / (2 : Rat)^(x.exponent - cfg_prec) =
+                  (2 : Rat)^((y.exponent - cfg_prec) - (x.exponent - cfg_prec)) := by
+          rw [← zpow_sub₀ h2_ne]
+        have h3 : (y.exponent - cfg_prec) - (x.exponent - cfg_prec) = y.exponent - x.exponent := by omega
+        rw [h3] at h2
+        rw [h2] at h1
+        exact h1
+      -- 2^(y.exp - x.exp) ≥ 2
+      have h_ge_two : (2 : Rat)^(y.exponent - x.exponent) ≥ 2 := by
+        calc (2 : Rat)^(y.exponent - x.exponent) ≥ (2 : Rat)^(1 : Int) := by
+              apply zpow_le_zpow_right₀
+              · have : (1 : Rat) ≤ 2 := by decide
+                exact this
+              · exact h_diff_ge_one
+          _ = 2 := by simp only [zpow_one]
+      -- y.mantissa ≥ 2^prec as Rat
+      have h_y_ge : (y.mantissa : Rat) ≥ (2 : Rat)^cfg_prec := by
+        have h1 : (2^cfg_prec : Nat) ≤ y.mantissa := hy_bounds.1
+        have h2 : ((2^cfg_prec : Nat) : Rat) ≤ (y.mantissa : Rat) := nat_cast_le_rat _ _ h1
+        simp only [Nat.cast_pow, Nat.cast_ofNat] at h2
+        exact h2
+      have h_pow_nonneg : (0 : Rat) ≤ (2 : Rat)^cfg_prec := pow_nonneg (by decide) _
+      -- x.mantissa ≥ 2^(prec+1)
+      have h_x_ge : (x.mantissa : Rat) ≥ (2 : Rat)^(cfg_prec+1) := by
+        calc (x.mantissa : Rat) = (y.mantissa : Rat) * (2 : Rat)^(y.exponent - x.exponent) := h_m_eq
+          _ ≥ (2 : Rat)^cfg_prec * (2 : Rat)^(y.exponent - x.exponent) := by
+              apply mul_le_mul_of_nonneg_right h_y_ge (zpow_nonneg (by decide) _)
+          _ ≥ (2 : Rat)^cfg_prec * 2 := by
+              apply mul_le_mul_of_nonneg_left h_ge_two h_pow_nonneg
+          _ = (2 : Rat)^(cfg_prec+1) := by rw [pow_succ]
+      -- x.mantissa < 2^(prec+1)
+      have h_x_lt : (x.mantissa : Rat) < (2 : Rat)^(cfg_prec+1) := by
+        have h1 : x.mantissa < 2^(cfg_prec+1) := hx_bounds.2
+        have h2 : (x.mantissa : Rat) < ((2^(cfg_prec+1) : Nat) : Rat) := nat_cast_lt_rat _ _ h1
+        simp only [Nat.cast_pow, Nat.cast_ofNat] at h2
+        exact h2
+      exact absurd h_x_ge (not_le.mpr h_x_lt)
+    · exact absurd h_eq' h_ne
+    · -- Case: x.exponent > y.exponent (symmetric)
+      have h_diff_pos : 0 < x.exponent - y.exponent := Int.sub_pos.mpr h_gt
+      have h_diff_ge_one : 1 ≤ x.exponent - y.exponent := h_diff_pos
+      have h2_ne : (2 : Rat) ≠ 0 := by decide
+      have h_zpow_y_ne : (2 : Rat)^(y.exponent - cfg_prec) ≠ 0 := zpow_ne_zero _ h2_ne
+      have h_m_eq : (y.mantissa : Rat) = (x.mantissa : Rat) * (2 : Rat)^(x.exponent - y.exponent) := by
+        have h1 : (y.mantissa : Rat) * (2 : Rat)^(y.exponent - cfg_prec) /
+                  (2 : Rat)^(y.exponent - cfg_prec) =
+                  (x.mantissa : Rat) * (2 : Rat)^(x.exponent - cfg_prec) /
+                  (2 : Rat)^(y.exponent - cfg_prec) := by rw [← h_base_eq]
+        simp only [mul_div_assoc, div_self h_zpow_y_ne, mul_one] at h1
+        -- h1 is now: y.mantissa = x.mantissa * (2^(x.exp-prec) / 2^(y.exp-prec))
+        have h2 : (2 : Rat)^(x.exponent - cfg_prec) / (2 : Rat)^(y.exponent - cfg_prec) =
+                  (2 : Rat)^((x.exponent - cfg_prec) - (y.exponent - cfg_prec)) := by
+          rw [← zpow_sub₀ h2_ne]
+        have h3 : (x.exponent - cfg_prec) - (y.exponent - cfg_prec) = x.exponent - y.exponent := by omega
+        rw [h3] at h2
+        rw [h2] at h1
+        exact h1
+      have h_ge_two : (2 : Rat)^(x.exponent - y.exponent) ≥ 2 := by
+        calc (2 : Rat)^(x.exponent - y.exponent) ≥ (2 : Rat)^(1 : Int) := by
+              apply zpow_le_zpow_right₀
+              · have : (1 : Rat) ≤ 2 := by decide
+                exact this
+              · exact h_diff_ge_one
+          _ = 2 := by simp only [zpow_one]
+      have h_x_ge : (x.mantissa : Rat) ≥ (2 : Rat)^cfg_prec := by
+        have h1 : (2^cfg_prec : Nat) ≤ x.mantissa := hx_bounds.1
+        have h2 : ((2^cfg_prec : Nat) : Rat) ≤ (x.mantissa : Rat) := nat_cast_le_rat _ _ h1
+        simp only [Nat.cast_pow, Nat.cast_ofNat] at h2
+        exact h2
+      have h_pow_nonneg : (0 : Rat) ≤ (2 : Rat)^cfg_prec := pow_nonneg (by decide) _
+      have h_y_ge : (y.mantissa : Rat) ≥ (2 : Rat)^(cfg_prec+1) := by
+        calc (y.mantissa : Rat) = (x.mantissa : Rat) * (2 : Rat)^(x.exponent - y.exponent) := h_m_eq
+          _ ≥ (2 : Rat)^cfg_prec * (2 : Rat)^(x.exponent - y.exponent) := by
+              apply mul_le_mul_of_nonneg_right h_x_ge (zpow_nonneg (by decide) _)
+          _ ≥ (2 : Rat)^cfg_prec * 2 := by
+              apply mul_le_mul_of_nonneg_left h_ge_two h_pow_nonneg
+          _ = (2 : Rat)^(cfg_prec+1) := by rw [pow_succ]
+      have h_y_lt : (y.mantissa : Rat) < (2 : Rat)^(cfg_prec+1) := by
+        have h1 : y.mantissa < 2^(cfg_prec+1) := hy_bounds.2
+        have h2 : (y.mantissa : Rat) < ((2^(cfg_prec+1) : Nat) : Rat) := nat_cast_lt_rat _ _ h1
+        simp only [Nat.cast_pow, Nat.cast_ofNat] at h2
+        exact h2
+      exact absurd h_y_ge (not_le.mpr h_y_lt)
   have h_mant_eq : x.mantissa = y.mantissa := by
     -- From h_base_eq and h_exp_eq
     have h2 : (x.mantissa : Rat) * (2 : Rat) ^ (y.exponent - cfg_prec) =
