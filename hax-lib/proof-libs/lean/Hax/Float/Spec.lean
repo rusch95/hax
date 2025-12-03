@@ -59,18 +59,55 @@ We use a typeclass to unify axioms for Float32 and Float, reducing duplication.
 Each instance declares the minimal set of axioms needed.
 -/
 
-class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α] [LE α] [LT α] [Zero α] [One α] [OfNat α 2] where
+class FloatSpec (α : Type) [Add α] [Sub α] [Mul α] [Div α] [Neg α]
+    [LE α] [LT α] [Zero α] [One α] [OfNat α 2] where
   /-- Machine epsilon: 2^(-p+1) where p is precision -/
   epsilon : Rat
 
+  /-- NaN value -/
+  nan : α
+
+  /-- Positive infinity value -/
+  infinity : α
+
+  /-- Check if value is NaN -/
+  is_nan : α → Bool
+
+  /-- Check if value is infinite (positive or negative) -/
+  is_inf : α → Bool
+
+  /-- Check if value is finite (not NaN and not infinite) -/
+  is_finite : α → Bool
+
+  /-- NaN is NaN -/
+  is_nan_nan : is_nan nan
+
+  /-- Infinity is infinite -/
+  is_inf_infinity : is_inf infinity
+
+  /-- Infinity is not NaN -/
+  not_nan_infinity : ¬ is_nan infinity
+
+  /-- NaN is not infinite -/
+  not_inf_nan : ¬ is_inf nan
+
+  /-- Finite definition -/
+  finite_def : ∀ x : α, is_finite x ↔ ¬ is_nan x ∧ ¬ is_inf x
+
   /-- Convert to rational (axiomatized, treating NaN/Inf as 0) -/
   to_rat : α → Rat
+
+  /-- Conversion of NaN is 0 -/
+  to_rat_nan : to_rat nan = 0
+
+  /-- Conversion of Infinity is 0 -/
+  to_rat_inf : to_rat infinity = 0
 
   /-- Conversion preserves zero -/
   to_rat_zero : to_rat (0 : α) = 0
 
   /-- Conversion is injective for finite values -/
-  to_rat_inj : ∀ x y : α, to_rat x = to_rat y → x = y
+  to_rat_inj : ∀ x y : α, is_finite x → is_finite y → to_rat x = to_rat y → x = y
 
   /-- Conversion preserves negation (exact since negation is exact) -/
   to_rat_neg : ∀ x : α, to_rat (-x) = -(to_rat x)
@@ -387,7 +424,7 @@ theorem mul_le_mul (a b c d : α) :
 
 -- Subtraction has same relative error bound as addition
 theorem sub_relative_error (x y : α) :
-  ∃ δ : Rat, Rat.abs δ ≤ Rat.divPow2 (@FloatSpec.epsilon α _ _ _ _ _ _ _ _ _ _ _) 1 ∧
+  ∃ δ : Rat, Rat.abs δ ≤ Rat.divPow2 (FloatSpec.epsilon (α := α)) 1 ∧
     to_rat (x - y) = (to_rat x - to_rat y) * (1 + δ) := by
   -- Use sub_eq_add_neg: x - y = x + (-y)
   have h_sub : x - y = x + (-y) := sub_eq_add_neg x y
@@ -613,6 +650,27 @@ noncomputable abbrev f32_to_rat_zero := FloatSpec.to_rat_zero (α := Float32)
 noncomputable abbrev f64_to_rat_zero := FloatSpec.to_rat_zero (α := Float)
 noncomputable abbrev f32_to_rat_inj := FloatSpec.to_rat_inj (α := Float32)
 noncomputable abbrev f64_to_rat_inj := FloatSpec.to_rat_inj (α := Float)
+
+-- NaN / Inf
+noncomputable abbrev f32_nan := FloatSpec.nan (α := Float32)
+noncomputable abbrev f64_nan := FloatSpec.nan (α := Float)
+noncomputable abbrev f32_infinity := FloatSpec.infinity (α := Float32)
+noncomputable abbrev f64_infinity := FloatSpec.infinity (α := Float)
+
+noncomputable abbrev f32_is_nan := FloatSpec.is_nan (α := Float32)
+noncomputable abbrev f64_is_nan := FloatSpec.is_nan (α := Float)
+noncomputable abbrev f32_is_inf := FloatSpec.is_inf (α := Float32)
+noncomputable abbrev f64_is_inf := FloatSpec.is_inf (α := Float)
+noncomputable abbrev f32_is_finite := FloatSpec.is_finite (α := Float32)
+noncomputable abbrev f64_is_finite := FloatSpec.is_finite (α := Float)
+
+noncomputable abbrev f32_to_rat_nan := FloatSpec.to_rat_nan (α := Float32)
+noncomputable abbrev f64_to_rat_nan := FloatSpec.to_rat_nan (α := Float)
+noncomputable abbrev f32_to_rat_inf := FloatSpec.to_rat_inf (α := Float32)
+noncomputable abbrev f64_to_rat_inf := FloatSpec.to_rat_inf (α := Float)
+
+noncomputable abbrev f32_finite_def := FloatSpec.finite_def (α := Float32)
+noncomputable abbrev f64_finite_def := FloatSpec.finite_def (α := Float)
 
 noncomputable abbrev f32_add_relative_error := FloatSpec.add_relative_error (α := Float32)
 noncomputable abbrev f64_add_relative_error := FloatSpec.add_relative_error (α := Float)
