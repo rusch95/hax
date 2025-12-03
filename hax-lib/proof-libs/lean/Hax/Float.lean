@@ -1,7 +1,7 @@
 import Hax.Lib
 import Hax.Integers.Ops
 import Hax.Float.Spec
-import Hax.Float.ValidExamples
+import Hax.Float.Examples
 
 abbrev f32 := Float32
 abbrev f64 := Float

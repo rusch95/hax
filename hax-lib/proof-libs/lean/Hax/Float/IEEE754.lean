@@ -208,7 +208,7 @@ theorem log2Nat_pow2 (k : Nat) : log2Nat (2^k) = k := by
       omega
     simp only [h1, ↓reduceIte]
     have h2 : 2^(n+1) / 2 = 2^n := by
-      rw [Nat.pow_succ, Nat.mul_div_cancel_left _ (by omega : 0 < 2)]
+      rw [Nat.pow_succ, Nat.mul_div_cancel _ (by omega : 0 < 2)]
     rw [h2, ih]
 
 /-- log2Nat for values in [2^k, 2^(k+1)) -/
@@ -4283,4 +4283,3 @@ example (x y z : Binary32)
   exact mul_monotonic_pos precision exponent_min exponent_max RoundMode.ToNearestEven x y z hz' h'
 
 end Float.IEEE754.Examples
-
