@@ -501,6 +501,15 @@ theorem fneg_toRat {fmt : FloatFormat} (x : FloatValue fmt) :
   | infinity s => simp [fneg, FloatValue.toRat]
   | nan => simp [fneg, FloatValue.toRat]
 
+/-- Negation distributes over multiplication: (-x) * y = -(x * y) -/
+theorem fneg_fmul (fmt : FloatFormat) (mode : RoundMode) (x y : FloatValue fmt) :
+    fmul fmt mode (fneg x) y = fneg (fmul fmt mode x y) := by
+  -- This theorem requires showing that:
+  -- 1. For infinity cases, xor and negation interact correctly
+  -- 2. For finite cases, round(-q) = fneg(round q)
+  -- The finite case requires detailed rounding analysis
+  sorry
+
 /-! # Phase 3: Commutativity -/
 
 /-- Machine epsilon: smallest ε such that 1 + ε ≠ 1 -/
@@ -859,7 +868,7 @@ instance : FloatSpec (FloatValue binary64) where
   neg_exact := neg_neg
   neg_mul := fun x y => by
     simp only [HMul.hMul, Mul.mul, Neg.neg]
-    sorry -- Need to prove fneg distributes over fmul
+    exact fneg_fmul binary64 defaultMode x y
 
   neg_le_neg := fun _ _ => by sorry
 
@@ -978,7 +987,9 @@ instance : FloatSpec (FloatValue binary32) where
   div_antimonotonic_den := fun _ _ _ _ _ _ _ => by sorry
   sterbenz := fun _ _ _ _ => by sorry
   neg_exact := neg_neg
-  neg_mul := fun x y => by simp only [HMul.hMul, Mul.mul, Neg.neg]; sorry
+  neg_mul := fun x y => by
+    simp only [HMul.hMul, Mul.mul, Neg.neg]
+    exact fneg_fmul binary32 defaultMode x y
   neg_le_neg := fun _ _ => by sorry
   sub_eq_add_neg := fun x y => by simp only [HSub.hSub, Sub.sub, HAdd.hAdd, Add.add, Neg.neg]; rfl
   add_neg_self := fun x hfin => by simp only [HAdd.hAdd, Add.add, Neg.neg, Zero.zero]; sorry
