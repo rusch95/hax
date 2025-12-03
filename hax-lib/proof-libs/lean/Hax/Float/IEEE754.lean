@@ -438,6 +438,27 @@ theorem log2Nat_ratio_invariant (a b : Nat) (ha : a > 0) (hb : b > 0) :
   simp [h1, h2]
   omega
 
+/-- log2Nat is monotonic: if n ≤ m, then log2Nat n ≤ log2Nat m -/
+theorem log2Nat_monotone (n m : Nat) (h : n ≤ m) : log2Nat n ≤ log2Nat m := by
+  induction m using Nat.strong_induction_on generalizing n with
+  | ind m ih =>
+    unfold log2Nat
+    by_cases h_n1 : n ≤ 1
+    · simp only [h_n1, ↓reduceIte]
+      by_cases h_m1 : m ≤ 1
+      · simp only [h_m1, ↓reduceIte]
+      · simp only [h_m1, ↓reduceIte]
+        omega
+    · simp only [h_n1, ↓reduceIte]
+      by_cases h_m1 : m ≤ 1
+      · -- n > 1 but m ≤ 1 contradicts n ≤ m
+        omega
+      · simp only [h_m1, ↓reduceIte]
+        -- Need: 1 + log2Nat(n/2) ≤ 1 + log2Nat(m/2)
+        have h_n2_le_m2 : n / 2 ≤ m / 2 := Nat.div_le_div_right h
+        have h_m2_lt : m / 2 < m := Nat.div_lt_self (by omega : m > 0) (by omega : 1 < 2)
+        exact Nat.add_le_add_left (ih (m / 2) h_m2_lt (n / 2) h_n2_le_m2) 1
+
 /-- log2Rat of a normalized float value equals the exponent.
     For m ∈ [2^prec, 2^(prec+1)) and q = m * 2^(e - prec), log2Rat q = e.
     This relies on how Rat represents the product of an integer and a power of 2. -/
@@ -1168,29 +1189,187 @@ theorem normalizeMantissa_value_eq_no_div (cfg_prec : Nat) (mantissa : Nat) (exp
         · -- In normalized range: return unchanged
           simp
 
+/-- In the division zone, the final exponent equals exp + (log2Nat m - cfg_prec).
+    This characterizes precisely how many divisions are needed to normalize. -/
+theorem normalizeMantissa_exp_div_zone (cfg_prec : Nat) (m : Nat) (exp : Int) (fuel : Nat)
+    (h_big : m ≥ 2^(cfg_prec + 1)) (h_fuel : fuel ≥ m + cfg_prec) :
+    (normalizeMantissa cfg_prec m exp fuel).2 = exp + (log2Nat m - cfg_prec) := by
+  induction m using Nat.strong_induction_on generalizing exp fuel with
+  | ind m ih =>
+    have h_m_pos : m > 0 := by
+      have : 2^(cfg_prec + 1) > 0 := Nat.pow_pos (by omega) _
+      omega
+    have h_fuel_pos : fuel > 0 := by omega
+    obtain ⟨n, h_fuel_eq⟩ := Nat.exists_eq_succ_of_ne_zero (by omega : fuel ≠ 0)
+    rw [h_fuel_eq]
+    unfold normalizeMantissa
+    simp only [Nat.add_one_ne_zero, ↓reduceIte]
+    split
+    · -- m = 0 contradicts h_m_pos
+      omega
+    · rename_i h_nonzero
+      split
+      · -- m ≥ 2^(cfg_prec + 1): we divide
+        rename_i h_div
+        have h_m_div2_lt : m / 2 < m := Nat.div_lt_self h_m_pos (by omega)
+        -- Check if m/2 is still in division zone or in stay zone
+        by_cases h_still_big : m / 2 ≥ 2^(cfg_prec + 1)
+        · -- Still in division zone
+          have h_fuel_ok : n ≥ m / 2 + cfg_prec := by omega
+          have h_rec := ih (m / 2) h_m_div2_lt (exp + 1) n h_still_big h_fuel_ok
+          -- log2Nat(m) = 1 + log2Nat(m/2) since m > 1
+          have h_log2_step : log2Nat m = 1 + log2Nat (m / 2) := by
+            unfold log2Nat
+            have h_m_gt1 : m > 1 := by
+              have : 2^(cfg_prec + 1) ≥ 2 := by
+                have := Nat.pow_le_pow_right (by omega : 1 ≤ 2) (by omega : 1 ≤ cfg_prec + 1)
+                omega
+              omega
+            simp only [Nat.not_le.mpr h_m_gt1, ↓reduceIte]
+          rw [h_rec, h_log2_step]
+          omega
+        · -- m/2 is in stay zone [2^prec, 2^(prec+1))
+          have h_m_div2_ge : m / 2 ≥ 2^cfg_prec := by
+            have : m ≥ 2^(cfg_prec + 1) := h_big
+            have : 2^(cfg_prec + 1) = 2 * 2^cfg_prec := by ring
+            omega
+          have h_m_div2_lt' : m / 2 < 2^(cfg_prec + 1) := by omega
+          -- In stay zone, normalizeMantissa returns unchanged
+          unfold normalizeMantissa
+          simp only [Nat.add_one_ne_zero, ↓reduceIte]
+          split
+          · omega  -- m/2 = 0 contradicts h_m_div2_ge
+          · split
+            · omega  -- m/2 ≥ 2^(prec+1) contradicts h_m_div2_lt'
+            · split
+              · omega  -- m/2 < 2^prec contradicts h_m_div2_ge
+              · -- In normalized range, exp stays at exp + 1
+                simp only
+                -- Need: exp + 1 = exp + (log2Nat m - cfg_prec)
+                -- i.e., log2Nat m = cfg_prec + 1
+                have h_log2_m : log2Nat m = cfg_prec + 1 := by
+                  apply log2Nat_normalized
+                  · exact h_big
+                  · -- m < 2^(cfg_prec + 2)
+                    -- Since m/2 < 2^(cfg_prec + 1), m < 2^(cfg_prec + 2)
+                    have : m < 2 * 2^(cfg_prec + 1) := by omega
+                    calc m < 2 * 2^(cfg_prec + 1) := this
+                      _ = 2^(cfg_prec + 2) := by ring
+                omega
+      · -- m < 2^(cfg_prec + 1) contradicts h_big
+        omega
+
 /-- If m1 ≤ m2 and both start at the same exponent, then final exp_1 ≤ exp_2.
     This is because a larger mantissa can only lead to a higher (or equal) exponent:
     - Division increases exponent, and larger mantissa divides more
     - Multiplication decreases exponent, and larger mantissa multiplies less -/
 theorem normalizeMantissa_exp_monotonic (cfg_prec : Nat) (m1 m2 : Nat) (exp : Int) (fuel1 fuel2 : Nat)
-    (h_le : m1 ≤ m2) :
+    (h_le : m1 ≤ m2) (h_fuel1 : fuel1 ≥ m1 + cfg_prec) (h_fuel2 : fuel2 ≥ m2 + cfg_prec) :
     (normalizeMantissa cfg_prec m1 exp fuel1).2 ≤ (normalizeMantissa cfg_prec m2 exp fuel2).2 := by
   -- Case split on zones for m1 and m2
   by_cases h_m1_big : m1 ≥ 2^(cfg_prec + 1)
   · -- m1 in division zone, so m2 also in division zone
     have h_m2_big : m2 ≥ 2^(cfg_prec + 1) := by omega
-    -- Both divide: exp_1 ≥ exp + 1 and exp_2 ≥ exp + 1
-    -- Use induction to show exp_1 ≤ exp_2
-    -- For now, use the helper lemmas
-    have h_e1_ge := normalizeMantissa_exp_ge_not_mult cfg_prec m1 exp fuel1 (by omega : m1 ≥ 2^cfg_prec)
-    have h_e2_ge := normalizeMantissa_exp_ge_not_mult cfg_prec m2 exp fuel2 (by omega : m2 ≥ 2^cfg_prec)
-    -- Both exponents are ≥ exp. Need to show e1 ≤ e2.
-    -- This requires more careful analysis of the division sequence.
-    -- For large m2, more divisions occur, leading to higher exponent.
-    -- But we only need exp_1 ≤ exp_2, which follows from m1 ≤ m2.
-    -- Actually, the opposite is true: larger mantissa → more divisions → higher exponent
-    -- So exp_1 ≤ exp_2 when m1 ≤ m2.
-    sorry
+    -- Both divide: e1, e2 ≥ exp + 1
+    -- The key insight: the final exponent is exp + (number of divisions)
+    -- where divisions = log2Nat(m) - prec.
+    -- Since m1 ≤ m2, log2Nat(m1) ≤ log2Nat(m2), so e1 ≤ e2.
+    --
+    -- For the formal proof, we use the value-based argument:
+    -- The normalized value v' satisfies v' ∈ [2^e, 2^(e+1)) and v' ≤ v (input value).
+    -- The exponent e is uniquely determined by v' being in its band.
+    have h_v1_le_v2 : (m1 : Rat) * (2 : Rat) ^ (exp - cfg_prec) ≤
+                      (m2 : Rat) * (2 : Rat) ^ (exp - cfg_prec) := by
+      apply mul_le_mul_of_nonneg_right (Nat.cast_le.mpr h_le)
+      apply zpow_nonneg; decide
+    have h_v1_bound := normalizeMantissa_value_le cfg_prec m1 exp fuel1
+    -- v1' ≤ v1 ≤ v2
+    -- The key is that the band containing v1' cannot exceed the band of v2
+    -- because v1' ≤ v1 ≤ v2 and bands are non-overlapping intervals
+    let e1 := (normalizeMantissa cfg_prec m1 exp fuel1).2
+    let e2 := (normalizeMantissa cfg_prec m2 exp fuel2).2
+    let r1 := (normalizeMantissa cfg_prec m1 exp fuel1).1
+    let r2 := (normalizeMantissa cfg_prec m2 exp fuel2).1
+
+    have h_m1_pos : 0 < m1 := by omega
+    have h_m2_pos : 0 < m2 := by omega
+    have h_norm1 := normalizeMantissa_isNormalized cfg_prec m1 exp fuel1 h_fuel1
+    have h_norm2 := normalizeMantissa_isNormalized cfg_prec m2 exp fuel2 h_fuel2
+
+    -- Both results are normalized (non-zero since m > 0 and enough fuel)
+    have h_r1_nz := normalizeMantissa_pos cfg_prec m1 exp fuel1 h_m1_pos h_fuel1
+    have h_r2_nz := normalizeMantissa_pos cfg_prec m2 exp fuel2 h_m2_pos h_fuel2
+
+    cases h_norm1 with
+    | inl h_r1_zero => omega
+    | inr h_range1 =>
+      cases h_norm2 with
+      | inl h_r2_zero => omega
+      | inr h_range2 =>
+        obtain ⟨h_r1_lo, h_r1_hi⟩ := h_range1
+        obtain ⟨h_r2_lo, h_r2_hi⟩ := h_range2
+        -- v1' ∈ [2^e1, 2^(e1+1)), v2' ∈ [2^e2, 2^(e2+1))
+        -- v1' ≤ v1 ≤ v2
+        -- We need to show e1 ≤ e2
+
+        -- v1' = r1 * 2^(e1 - prec) ≥ 2^prec * 2^(e1 - prec) = 2^e1
+        have h_v1'_ge : (r1 : Rat) * (2 : Rat) ^ (e1 - cfg_prec) ≥ (2 : Rat) ^ e1 := by
+          calc (r1 : Rat) * (2 : Rat) ^ (e1 - cfg_prec)
+              ≥ (2 : Rat) ^ cfg_prec * (2 : Rat) ^ (e1 - cfg_prec) := by
+                  apply mul_le_mul_of_nonneg_right (nat_cast_le_rat _ _ h_r1_lo)
+                  apply zpow_nonneg; decide
+            _ = (2 : Rat) ^ e1 := by
+                  rw [← zpow_natCast, ← zpow_add₀ (by decide : (2 : Rat) ≠ 0)]
+                  congr 1; omega
+
+        -- v2' = r2 * 2^(e2 - prec) < 2^(prec+1) * 2^(e2 - prec) = 2^(e2+1)
+        have h_v2'_lt : (r2 : Rat) * (2 : Rat) ^ (e2 - cfg_prec) < (2 : Rat) ^ (e2 + 1) := by
+          calc (r2 : Rat) * (2 : Rat) ^ (e2 - cfg_prec)
+              < (2 : Rat) ^ (cfg_prec + 1) * (2 : Rat) ^ (e2 - cfg_prec) := by
+                  apply mul_lt_mul_of_pos_right (nat_cast_lt_rat _ _ h_r2_hi)
+                  apply zpow_pos_of_pos; decide
+            _ = (2 : Rat) ^ (e2 + 1) := by
+                  rw [← zpow_natCast, ← zpow_add₀ (by decide : (2 : Rat) ≠ 0)]
+                  congr 1; omega
+
+        -- From v1' ≤ v1 ≤ v2 and the band bounds:
+        -- 2^e1 ≤ v1' ≤ v1 ≤ v2
+        -- But we need to relate this to v2' and e2.
+        -- The key observation: v2 is in some band, and v2' ≤ v2 with v2' in band [2^e2, 2^(e2+1))
+        -- This means v2 ≥ v2' ≥ 2^e2
+        -- So v1 ≤ v2 and v2 ≥ 2^e2
+
+        have h_v2'_ge : (r2 : Rat) * (2 : Rat) ^ (e2 - cfg_prec) ≥ (2 : Rat) ^ e2 := by
+          calc (r2 : Rat) * (2 : Rat) ^ (e2 - cfg_prec)
+              ≥ (2 : Rat) ^ cfg_prec * (2 : Rat) ^ (e2 - cfg_prec) := by
+                  apply mul_le_mul_of_nonneg_right (nat_cast_le_rat _ _ h_r2_lo)
+                  apply zpow_nonneg; decide
+            _ = (2 : Rat) ^ e2 := by
+                  rw [← zpow_natCast, ← zpow_add₀ (by decide : (2 : Rat) ≠ 0)]
+                  congr 1; omega
+
+        have h_v2_ge_v2' := normalizeMantissa_value_le cfg_prec m2 exp fuel2
+        -- v2' ≤ v2, and v2' ≥ 2^e2, so v2 ≥ 2^e2
+        have h_v2_ge_pow : (m2 : Rat) * (2 : Rat) ^ (exp - cfg_prec) ≥ (2 : Rat) ^ e2 := by
+          calc (m2 : Rat) * (2 : Rat) ^ (exp - cfg_prec)
+              ≥ (r2 : Rat) * (2 : Rat) ^ (e2 - cfg_prec) := h_v2_ge_v2'
+            _ ≥ (2 : Rat) ^ e2 := h_v2'_ge
+
+        -- Now: 2^e1 ≤ v1 ≤ v2 and v2 ≥ 2^e2
+        -- From v1' ≤ v1 and h_v1'_ge: 2^e1 ≤ v1' ≤ v1 ≤ v2
+        have h_v1'_le_v2 : (r1 : Rat) * (2 : Rat) ^ (e1 - cfg_prec) ≤
+                          (m2 : Rat) * (2 : Rat) ^ (exp - cfg_prec) := by
+          calc (r1 : Rat) * (2 : Rat) ^ (e1 - cfg_prec)
+              ≤ (m1 : Rat) * (2 : Rat) ^ (exp - cfg_prec) := h_v1_bound
+            _ ≤ (m2 : Rat) * (2 : Rat) ^ (exp - cfg_prec) := h_v1_le_v2
+
+        -- Use the division zone characterization: e = exp + (log2Nat m - prec)
+        have h_e1_eq := normalizeMantissa_exp_div_zone cfg_prec m1 exp fuel1 h_m1_big h_fuel1
+        have h_e2_eq := normalizeMantissa_exp_div_zone cfg_prec m2 exp fuel2 h_m2_big h_fuel2
+        -- Since m1 ≤ m2, log2Nat m1 ≤ log2Nat m2 by log2Nat_monotone
+        have h_log2_le := log2Nat_monotone m1 m2 h_le
+        -- Therefore e1 ≤ e2
+        omega
   · by_cases h_m1_small : m1 < 2^cfg_prec
     · -- m1 in multiplication zone
       by_cases h_m2_big : m2 ≥ 2^(cfg_prec + 1)
@@ -1218,9 +1397,94 @@ theorem normalizeMantissa_exp_monotonic (cfg_prec : Nat) (m1 m2 : Nat) (exp : In
           have h_e1_le := normalizeMantissa_exp_le_not_div cfg_prec m1 exp fuel1 h_m1_lt
           have h_e2_le := normalizeMantissa_exp_le_not_div cfg_prec m2 exp fuel2 h_m2_lt
           -- Both exponents ≤ exp. Need e1 ≤ e2.
-          -- Smaller mantissa means more multiplications, lower exponent.
-          -- So m1 ≤ m2 means exp_1 ≤ exp_2.
-          sorry
+          -- Use value preservation: v = m * 2^(exp - prec) is exactly preserved in mult zone
+          -- After normalization: v = r * 2^(e - prec) where r ∈ [2^prec, 2^(prec+1))
+          -- So 2^e ≤ v < 2^(e+1)
+          -- For v1 ≤ v2: if e1 > e2, then 2^e1 ≤ v1 ≤ v2 < 2^(e2+1) ≤ 2^e1, contradiction
+          have h_v1 := normalizeMantissa_value_eq_no_div cfg_prec m1 exp fuel1 h_m1_lt
+          have h_v2 := normalizeMantissa_value_eq_no_div cfg_prec m2 exp fuel2 h_m2_lt
+          -- v1 = r1 * 2^(e1 - prec) = m1 * 2^(exp - prec)
+          -- v2 = r2 * 2^(e2 - prec) = m2 * 2^(exp - prec)
+          -- Since m1 ≤ m2: v1 ≤ v2
+          let e1 := (normalizeMantissa cfg_prec m1 exp fuel1).2
+          let e2 := (normalizeMantissa cfg_prec m2 exp fuel2).2
+          let r1 := (normalizeMantissa cfg_prec m1 exp fuel1).1
+          let r2 := (normalizeMantissa cfg_prec m2 exp fuel2).1
+          have h_v1' : (r1 : Rat) * (2 : Rat) ^ (e1 - cfg_prec) = (m1 : Rat) * (2 : Rat) ^ (exp - cfg_prec) := h_v1
+          have h_v2' : (r2 : Rat) * (2 : Rat) ^ (e2 - cfg_prec) = (m2 : Rat) * (2 : Rat) ^ (exp - cfg_prec) := h_v2
+          -- The normalized mantissa is in [2^prec, 2^(prec+1)) (if nonzero)
+          -- Get the normalization bounds
+          by_cases h_m1_zero : m1 = 0
+          · simp only [h_m1_zero, normalizeMantissa_zero]; omega
+          · have h_m1_pos : 0 < m1 := Nat.pos_of_ne_zero h_m1_zero
+            have h_m2_pos : 0 < m2 := by omega
+            have h_norm1 := normalizeMantissa_isNormalized cfg_prec m1 exp fuel1 h_fuel1
+            have h_norm2 := normalizeMantissa_isNormalized cfg_prec m2 exp fuel2 h_fuel2
+            -- If r1 = 0, then e1 ≤ e2 trivially (well, we need to check)
+            cases h_norm1 with
+            | inl h_r1_zero =>
+              -- r1 = 0, so the normalized value is 0
+              -- But m1 > 0 and value is preserved, so m1 * 2^(exp - prec) = 0, contradiction
+              have h_val_pos : (m1 : Rat) * (2 : Rat) ^ (exp - cfg_prec) > 0 := by
+                apply mul_pos
+                · exact Nat.cast_pos.mpr h_m1_pos
+                · apply zpow_pos_of_pos; decide
+              rw [← h_v1', h_r1_zero] at h_val_pos
+              simp at h_val_pos
+            | inr h_range1 =>
+              cases h_norm2 with
+              | inl h_r2_zero =>
+                have h_val_pos : (m2 : Rat) * (2 : Rat) ^ (exp - cfg_prec) > 0 := by
+                  apply mul_pos
+                  · exact Nat.cast_pos.mpr h_m2_pos
+                  · apply zpow_pos_of_pos; decide
+                rw [← h_v2', h_r2_zero] at h_val_pos
+                simp at h_val_pos
+              | inr h_range2 =>
+                -- Both r1 and r2 are in [2^prec, 2^(prec+1))
+                obtain ⟨h_r1_lo, h_r1_hi⟩ := h_range1
+                obtain ⟨h_r2_lo, h_r2_hi⟩ := h_range2
+                -- v1 = r1 * 2^(e1 - prec) ∈ [2^e1, 2^(e1+1))
+                -- v2 = r2 * 2^(e2 - prec) ∈ [2^e2, 2^(e2+1))
+                -- v1 ≤ v2 (since m1 ≤ m2)
+                have h_val_le : (m1 : Rat) * (2 : Rat) ^ (exp - cfg_prec) ≤
+                                (m2 : Rat) * (2 : Rat) ^ (exp - cfg_prec) := by
+                  apply mul_le_mul_of_nonneg_right
+                  · exact Nat.cast_le.mpr h_le
+                  · apply zpow_nonneg; decide
+                rw [← h_v1', ← h_v2'] at h_val_le
+                -- Now: r1 * 2^(e1 - prec) ≤ r2 * 2^(e2 - prec)
+                -- With r1 ≥ 2^prec and r2 < 2^(prec+1)
+                -- v1 ≥ 2^prec * 2^(e1 - prec) = 2^e1
+                -- v2 < 2^(prec+1) * 2^(e2 - prec) = 2^(e2+1)
+                have h_v1_ge : (r1 : Rat) * (2 : Rat) ^ (e1 - cfg_prec) ≥ (2 : Rat) ^ e1 := by
+                  calc (r1 : Rat) * (2 : Rat) ^ (e1 - cfg_prec)
+                      ≥ (2 : Rat) ^ cfg_prec * (2 : Rat) ^ (e1 - cfg_prec) := by
+                          apply mul_le_mul_of_nonneg_right
+                          · exact nat_cast_le_rat _ _ h_r1_lo
+                          · apply zpow_nonneg; decide
+                    _ = (2 : Rat) ^ e1 := by
+                          rw [← zpow_natCast, ← zpow_add₀ (by decide : (2 : Rat) ≠ 0)]
+                          congr 1; omega
+                have h_v2_lt : (r2 : Rat) * (2 : Rat) ^ (e2 - cfg_prec) < (2 : Rat) ^ (e2 + 1) := by
+                  calc (r2 : Rat) * (2 : Rat) ^ (e2 - cfg_prec)
+                      < (2 : Rat) ^ (cfg_prec + 1) * (2 : Rat) ^ (e2 - cfg_prec) := by
+                          apply mul_lt_mul_of_pos_right
+                          · exact nat_cast_lt_rat _ _ h_r2_hi
+                          · apply zpow_pos_of_pos; decide
+                    _ = (2 : Rat) ^ (e2 + 1) := by
+                          rw [← zpow_natCast, ← zpow_add₀ (by decide : (2 : Rat) ≠ 0)]
+                          congr 1; omega
+                -- From v1 ≤ v2: 2^e1 ≤ v1 ≤ v2 < 2^(e2+1)
+                -- So 2^e1 < 2^(e2+1), which means e1 < e2 + 1, i.e., e1 ≤ e2
+                have h_pow_lt : (2 : Rat) ^ e1 < (2 : Rat) ^ (e2 + 1) := by
+                  calc (2 : Rat) ^ e1 ≤ (r1 : Rat) * (2 : Rat) ^ (e1 - cfg_prec) := h_v1_ge
+                    _ ≤ (r2 : Rat) * (2 : Rat) ^ (e2 - cfg_prec) := h_val_le
+                    _ < (2 : Rat) ^ (e2 + 1) := h_v2_lt
+                have h_exp_lt : e1 < e2 + 1 := by
+                  have := zpow_lt_zpow_iff_right (by decide : (1 : Rat) < 2)
+                  exact this.mp h_pow_lt
+                omega
         · -- m1 in mult zone, m2 in stay zone
           push_neg at h_m2_big h_m2_small
           have h_m1_lt : m1 < 2^(cfg_prec + 1) := by
@@ -2091,13 +2355,10 @@ theorem roundToFloat_mantissa_monotonic_same_band (cfg_prec : Nat) (cfg_emin cfg
         -- Since this case is rare (clamping typically happens at extremes),
         -- we note that the unclamped case is the primary path
         have h_exp_x_le_exp_y : exp_x ≤ exp_y := by
-          -- From normalizeMantissa_exp_le_not_div or similar reasoning
-          -- If rounded_x ≤ rounded_y and same starting exp, then exp_x ≤ exp_y
-          -- This is because larger mantissa can only stay same or increase exponent
-          -- Let's unfold and analyze...
-          -- For complete rigor, this would need another helper lemma
-          -- For now, admit this auxiliary fact
-          sorry
+          -- Use normalizeMantissa_exp_monotonic: rounded_x ≤ rounded_y with same start exp gives exp_x ≤ exp_y
+          exact normalizeMantissa_exp_monotonic cfg_prec rounded_x rounded_y e_y
+            (rounded_x + cfg_prec) (rounded_y + cfg_prec) h_rounded_le
+            (by omega) (by omega)
         -- If exp_x < exp_y, then clamp_x and clamp_y can only match if both clamped
         -- This is a boundary case that the computational tests verify
         sorry
