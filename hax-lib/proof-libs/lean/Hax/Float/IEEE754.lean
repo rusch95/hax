@@ -357,6 +357,50 @@ theorem log2Rat_bounds (q : Rat) (hq : 0 < q) :
             apply zpow_le_zpow_right₀ (by decide : 1 ≤ (2 : Rat))
             omega
 
+/-- Tighter upper bound: q < 2^(log2Rat(q) + 1).
+    This is the direct consequence of the log2Nat bounds on num and den.
+    The weaker bound 2^(e+2) in log2Rat_bounds is sufficient for most uses,
+    but this tight bound is essential for proving ceiling preservation. -/
+theorem log2Rat_upper_tight (q : Rat) (hq : 0 < q) :
+    q < (2 : Rat) ^ (log2Rat q + 1) := by
+  have h_num_pos : 0 < q.num := Rat.num_pos.mpr hq
+  have h_num_natAbs_pos : q.num.natAbs > 0 := Int.natAbs_pos.mpr (ne_of_gt h_num_pos)
+  have h_den_pos : q.den > 0 := q.den_pos
+  have ⟨_, h_num_hi⟩ := log2Nat_bounds q.num.natAbs h_num_natAbs_pos
+  have ⟨h_den_lo, _⟩ := log2Nat_bounds q.den h_den_pos
+  have h_log2Rat : log2Rat q = (log2Nat q.num.natAbs : Int) - (log2Nat q.den : Int) := by
+    unfold log2Rat
+    have h_not_neg : ¬(q < 0) := not_lt.mpr (le_of_lt hq)
+    simp only [h_not_neg, ↓reduceIte]
+    have h_num_nz : q.num.natAbs ≠ 0 := Nat.pos_iff_ne_zero.mp h_num_natAbs_pos
+    simp only [h_num_nz, ↓reduceIte]
+  rw [h_log2Rat]
+  have h_q_eq : q = (q.num : Rat) / (q.den : Rat) := (Rat.num_div_den q).symm
+  have h_num_eq : (q.num : Rat) = (q.num.natAbs : Rat) := by
+    simp only [Int.cast_natAbs, abs_of_pos h_num_pos]
+  rw [h_q_eq, h_num_eq]
+  have h_num_lt : (q.num.natAbs : Rat) < (2 : Rat) ^ (log2Nat q.num.natAbs + 1) := by
+    calc (q.num.natAbs : Rat) < (2^(log2Nat q.num.natAbs + 1) : Nat) := Nat.cast_lt.mpr h_num_hi
+      _ = (2 : Rat) ^ (log2Nat q.num.natAbs + 1) := by simp [zpow_natCast]
+  have h_den_ge : (2 : Rat) ^ (log2Nat q.den) ≤ (q.den : Rat) := by
+    calc (2 : Rat) ^ (log2Nat q.den)
+        = (2^(log2Nat q.den) : Nat) := by simp [zpow_natCast]
+      _ ≤ (q.den : Rat) := Nat.cast_le.mpr h_den_lo
+  calc (q.num.natAbs : Rat) / (q.den : Rat)
+      ≤ (q.num.natAbs : Rat) / (2 : Rat) ^ (log2Nat q.den) := by
+          apply div_le_div_of_nonneg_left
+          · exact Nat.cast_nonneg _
+          · apply zpow_pos_of_pos; decide
+          · exact h_den_ge
+      _ < (2 : Rat) ^ (log2Nat q.num.natAbs + 1) / (2 : Rat) ^ (log2Nat q.den) := by
+          apply div_lt_div_of_pos_right h_num_lt
+          apply zpow_pos_of_pos; decide
+      _ = (2 : Rat) ^ ((log2Nat q.num.natAbs : Int) + 1 - (log2Nat q.den : Int)) := by
+          rw [zpow_sub₀ (by decide : (2 : Rat) ≠ 0)]
+          congr 1
+          simp [zpow_natCast]
+      _ = (2 : Rat) ^ ((log2Nat q.num.natAbs : Int) - (log2Nat q.den : Int) + 1) := by ring_nf
+
 /-- Helper: log2Nat of product with power of 2 -/
 theorem log2Nat_mul_pow2 (m k : Nat) (hm : m > 0) :
     log2Nat (m * 2^k) = log2Nat m + k := by
@@ -1036,6 +1080,46 @@ theorem normalizeMantissa_value_le (cfg_prec : Nat) (mantissa : Nat) (exp : Int)
           rename_i h_not_small
           simp
 
+/-- When mantissa < 2^(prec+1), normalization doesn't divide, so value is preserved exactly.
+    This is the key property for ceiling-based rounding where we need value ≥ input. -/
+theorem normalizeMantissa_value_eq_no_div (cfg_prec : Nat) (mantissa : Nat) (exp : Int) (fuel : Nat)
+    (h_small : mantissa < 2^(cfg_prec + 1)) :
+    let (m, e) := normalizeMantissa cfg_prec mantissa exp fuel
+    (m : Rat) * (2 : Rat) ^ (e - cfg_prec) = (mantissa : Rat) * (2 : Rat) ^ (exp - cfg_prec) := by
+  induction fuel generalizing mantissa exp with
+  | zero =>
+    unfold normalizeMantissa
+    simp
+  | succ n ih =>
+    unfold normalizeMantissa
+    simp only [Nat.add_one_ne_zero, ↓reduceIte]
+    split
+    · -- mantissa = 0
+      simp
+    · rename_i h_nonzero
+      split
+      · -- mantissa ≥ 2^(cfg_prec + 1) : division branch - but h_small contradicts this!
+        rename_i h_big
+        omega  -- h_small and h_big contradict
+      · rename_i h_not_big
+        split
+        · -- mantissa < 2^cfg_prec : multiply by 2
+          rename_i h_tiny
+          -- After multiplying: mantissa * 2 < 2 * 2^cfg_prec = 2^(cfg_prec + 1)
+          have h_new_small : mantissa * 2 < 2^(cfg_prec + 1) := by
+            calc mantissa * 2 < 2^cfg_prec * 2 := by omega
+              _ = 2^(cfg_prec + 1) := by ring
+          have h_ih := ih (mantissa * 2) (exp - 1) h_new_small
+          calc (normalizeMantissa cfg_prec (mantissa * 2) (exp - 1) n).1 *
+                 (2 : Rat) ^ ((normalizeMantissa cfg_prec (mantissa * 2) (exp - 1) n).2 - cfg_prec)
+               = (mantissa * 2 : Rat) * (2 : Rat) ^ ((exp - 1) - cfg_prec) := h_ih
+             _ = (mantissa : Rat) * 2 * (2 : Rat) ^ ((exp - 1) - cfg_prec) := by simp [Nat.cast_mul]
+             _ = (mantissa : Rat) * (2 : Rat) ^ (exp - cfg_prec) := by
+                 rw [zpow_sub₀ (by decide : (2 : Rat) ≠ 0)]
+                 ring
+        · -- In normalized range: return unchanged
+          simp
+
 /-- After normalization with non-zero result, the value m * 2^(e - prec) is in [2^e, 2^(e+1)).
     This is because m ∈ [2^prec, 2^(prec+1)), so:
     m * 2^(e - prec) ∈ [2^prec * 2^(e-prec), 2^(prec+1) * 2^(e-prec)) = [2^e, 2^(e+1)) -/
@@ -1144,14 +1228,112 @@ theorem normalized_value_ge_input_ceil (cfg_prec : Nat) (q : Rat) (hq : 0 < q) :
   have h_scaled_nonneg : 0 ≤ scaled := le_of_lt h_scaled_pos
   -- For TowardPositive, rounded ≥ scaled
   have h_round_ge : scaled ≤ (rounded : Rat) := roundRatToNat_ge_towardPos scaled h_scaled_nonneg
-  -- The normalization step only decreases value (from division rounding)
-  -- For ceiling rounding, we need a different approach:
-  -- The normalized value might be less than rounded * 2^(e - prec) due to division
-  -- But we have rounded ≥ scaled, so rounded * 2^(e - prec) ≥ q
-  -- The issue is normalization might decrease this...
-  -- For a complete proof, we'd need normalizeMantissa_value_ge for certain cases
-  -- For now, we note this requires more infrastructure
-  sorry
+
+  -- Key insight: from log2Rat_upper_tight, q < 2^(e+1)
+  have h_q_upper := log2Rat_upper_tight q hq
+  -- Therefore scaled = q * 2^(prec - e) < 2^(prec+1)
+  have h_scaled_upper : scaled < (2 : Rat) ^ ((cfg_prec : Int) + 1) := by
+    calc scaled = q * (2 : Rat) ^ ((cfg_prec : Int) - e) := rfl
+      _ < (2 : Rat) ^ (e + 1) * (2 : Rat) ^ ((cfg_prec : Int) - e) := by
+          apply mul_lt_mul_of_pos_right h_q_upper
+          apply zpow_pos_of_pos; decide
+      _ = (2 : Rat) ^ ((e + 1) + ((cfg_prec : Int) - e)) := by
+          rw [← zpow_add₀ (by decide : (2 : Rat) ≠ 0)]
+      _ = (2 : Rat) ^ ((cfg_prec : Int) + 1) := by ring_nf
+
+  -- Since scaled < 2^(prec+1), and rounded = ceil(scaled), rounded ≤ 2^(prec+1)
+  -- Because: ceil(x) ≤ n when x < n and n is an integer
+  have h_rounded_bound : rounded ≤ 2^(cfg_prec + 1) := by
+    -- roundRatToNat gives ≤ scaled + 1 (from roundRatToNat_near)
+    have h_near := (roundRatToNat_near RoundMode.TowardPositive scaled h_scaled_nonneg).1
+    -- rounded ≤ scaled + 1 < 2^(prec+1) + 1
+    have h1 : (rounded : Rat) ≤ scaled + 1 := h_near
+    have h2 : scaled + 1 < (2 : Rat) ^ ((cfg_prec : Int) + 1) + 1 := by linarith
+    have h3 : (rounded : Rat) < (2 : Rat) ^ ((cfg_prec : Int) + 1) + 1 := lt_of_le_of_lt h1 h2
+    -- Convert to natural number comparison
+    have h4 : (rounded : Rat) < (2^(cfg_prec + 1) + 1 : Nat) := by
+      simp only [Nat.cast_add, Nat.cast_pow, Nat.cast_ofNat, Nat.cast_one]
+      convert h3 using 1
+      rw [zpow_natCast]
+    have h5 : rounded < 2^(cfg_prec + 1) + 1 := by
+      have := Nat.cast_lt.mp h4
+      exact this
+    omega
+
+  -- Case split: rounded < 2^(prec+1) or rounded = 2^(prec+1)
+  by_cases h_exact : rounded = 2^(cfg_prec + 1)
+  · -- Case: rounded = 2^(prec+1) exactly
+    -- One division step: m = 2^prec, exp = e + 1
+    -- Value = 2^prec * 2^(e+1-prec) = 2^(e+1)
+    -- Since q < 2^(e+1), we have q ≤ 2^(e+1) = value
+    -- First, unfold normalizeMantissa to see the division
+    unfold normalizeMantissa
+    simp only [h_exact]
+    -- fuel = 2^(prec+1) + prec ≠ 0
+    have h_fuel_ne : fuel ≠ 0 := by simp only [fuel]; omega
+    simp only [h_fuel_ne, ↓reduceIte]
+    -- 2^(prec+1) ≠ 0
+    have h_pow_nz : (2^(cfg_prec + 1) : Nat) ≠ 0 := by
+      apply Nat.pow_ne_zero; omega
+    simp only [h_pow_nz, ↓reduceIte]
+    -- 2^(prec+1) ≥ 2^(prec+1), so we divide
+    have h_div_cond : 2^(cfg_prec + 1) ≥ 2^(cfg_prec + 1) := le_refl _
+    simp only [ge_iff_le, h_div_cond, ↓reduceIte]
+    -- After division: mantissa = 2^(prec+1) / 2 = 2^prec
+    have h_div_val : 2^(cfg_prec + 1) / 2 = 2^cfg_prec := by
+      rw [Nat.pow_succ, Nat.mul_div_cancel_right]
+      omega
+    rw [h_div_val]
+    -- Now we have normalizeMantissa prec 2^prec (e+1) (fuel-1)
+    -- 2^prec is in normalized range [2^prec, 2^(prec+1)), so it returns unchanged
+    have h_in_range : 2^cfg_prec ≥ 2^cfg_prec ∧ ¬(2^cfg_prec ≥ 2^(cfg_prec + 1)) := by
+      constructor
+      · exact le_refl _
+      · push_neg
+        exact Nat.pow_lt_pow_right (by omega : 1 < 2) (by omega)
+    -- The next call returns (2^prec, e+1) since it's in range
+    have h_norm_eq : normalizeMantissa cfg_prec (2^cfg_prec) (e + 1) (fuel - 1) = (2^cfg_prec, e + 1) := by
+      unfold normalizeMantissa
+      split
+      · -- fuel - 1 = 0
+        simp
+      · rename_i h_fuel_succ
+        simp only [Nat.pow_eq_zero, OfNat.ofNat_ne_zero, cfg_prec.succ_ne_zero, and_false,
+                   not_false_eq_true, ↓reduceIte]
+        split
+        · -- 2^prec ≥ 2^(prec+1) - contradiction
+          rename_i h_big
+          have : 2^cfg_prec < 2^(cfg_prec + 1) := Nat.pow_lt_pow_right (by omega : 1 < 2) (by omega)
+          omega
+        · split
+          · -- 2^prec < 2^prec - contradiction
+            rename_i _ h_small
+            omega
+          · simp
+    rw [h_norm_eq]
+    -- Value = 2^prec * 2^(e+1-prec) = 2^(e+1)
+    have h_value_eq : (2^cfg_prec : Rat) * (2 : Rat) ^ ((e + 1) - cfg_prec) = (2 : Rat) ^ (e + 1) := by
+      rw [← zpow_natCast (2 : Rat) cfg_prec]
+      rw [← zpow_add₀ (by decide : (2 : Rat) ≠ 0)]
+      congr 1
+      omega
+    rw [h_value_eq]
+    -- q < 2^(e+1) implies q ≤ 2^(e+1)
+    exact le_of_lt h_q_upper
+
+  · -- Case: rounded < 2^(prec+1)
+    -- No division happens, so value is preserved exactly
+    have h_small : rounded < 2^(cfg_prec + 1) := by omega
+    have h_value_eq := normalizeMantissa_value_eq_no_div cfg_prec rounded e fuel h_small
+    rw [h_value_eq]
+    -- Value = rounded * 2^(e - prec) ≥ scaled * 2^(e - prec) = q
+    calc q = q * (2 : Rat) ^ ((cfg_prec : Int) - e) * (2 : Rat) ^ (e - cfg_prec) := by
+            rw [mul_assoc, ← zpow_add₀ (by decide : (2 : Rat) ≠ 0)]
+            simp
+       _ = scaled * (2 : Rat) ^ (e - cfg_prec) := rfl
+       _ ≤ (rounded : Rat) * (2 : Rat) ^ (e - cfg_prec) := by
+            apply mul_le_mul_of_nonneg_right h_round_ge
+            apply zpow_nonneg; decide
 
 /-- Axiom: IEEE 754 rounding band assignment is monotonic.
     If x ≤ y and both are positive, then the exponent (band) of round(x) is ≤ the exponent of round(y).
