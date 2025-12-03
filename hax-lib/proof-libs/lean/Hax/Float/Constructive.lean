@@ -833,6 +833,79 @@ theorem fdiv_self (fmt : FloatFormat) (mode : RoundMode) (f : FloatRepr fmt)
     rw [hfone_eq]
     exact round_idempotent mode repr
 
+/-- Rounding is monotonic: if q₁ ≤ q₂, then round(q₁) ≤ round(q₂).
+
+This is a fundamental property of IEEE 754 rounding modes.
+For finite inputs, the rounded results preserve the order.
+Overflow to ±∞ also preserves order.
+-/
+theorem round_monotonic (fmt : FloatFormat) (mode : RoundMode) (q₁ q₂ : Rat)
+    (h : q₁ ≤ q₂) : FloatValue.le (round fmt mode q₁) (round fmt mode q₂) := by
+  sorry  -- Requires detailed analysis of the rounding algorithm
+
+/-- Addition monotonicity for finite values -/
+theorem fadd_monotonic_left (fmt : FloatFormat) (mode : RoundMode)
+    (x y z : FloatValue fmt) (hz : z.isFinite) (hxy : x ≤ y) :
+    fadd fmt mode x z ≤ fadd fmt mode y z := by
+  cases x with
+  | nan =>
+    simp only [LE.le, instLEFloatValue, FloatValue.le] at hxy
+  | infinity sx =>
+    cases y with
+    | nan =>
+      simp only [LE.le, instLEFloatValue, FloatValue.le] at hxy
+    | infinity sy =>
+      cases z with
+      | finite fz =>
+        simp only [fadd]
+        cases sx <;> cases sy <;> simp only [FloatValue.le] at hxy ⊢
+        -- -∞ + z ≤ -∞ + z, +∞ + z ≤ +∞ + z: reflexive
+        all_goals simp only [FloatValue.le]
+        -- -∞ ≤ +∞ case: -∞ + z ≤ +∞ + z is True (first wins in le definition)
+        simp only [FloatValue.le]
+      | infinity s => simp [FloatValue.isFinite] at hz
+      | nan => simp [FloatValue.isFinite] at hz
+    | finite fy =>
+      cases sx with
+      | false =>
+        -- +∞ ≤ finite is False
+        simp only [LE.le, instLEFloatValue, FloatValue.le] at hxy
+      | true =>
+        -- -∞ ≤ finite is True
+        -- -∞ + z = -∞, which is ≤ anything
+        cases z with
+        | finite fz =>
+          simp only [fadd, FloatValue.le]
+        | infinity s => simp [FloatValue.isFinite] at hz
+        | nan => simp [FloatValue.isFinite] at hz
+  | finite fx =>
+    cases y with
+    | nan =>
+      simp only [LE.le, instLEFloatValue, FloatValue.le] at hxy
+    | infinity sy =>
+      cases sy with
+      | false =>
+        -- fx ≤ +∞ is True
+        -- fx + z and +∞ + z = +∞
+        cases z with
+        | finite fz =>
+          simp only [fadd, FloatValue.le]
+        | infinity s => simp [FloatValue.isFinite] at hz
+        | nan => simp [FloatValue.isFinite] at hz
+      | true =>
+        -- fx ≤ -∞ is False
+        simp only [LE.le, instLEFloatValue, FloatValue.le] at hxy
+    | finite fy =>
+      cases z with
+      | finite fz =>
+        simp only [fadd]
+        -- Need to show round(fx.toRat + fz.toRat) ≤ round(fy.toRat + fz.toRat)
+        simp only [LE.le, instLEFloatValue, FloatValue.le] at hxy ⊢
+        have hle : fx.toRat + fz.toRat ≤ fy.toRat + fz.toRat := add_le_add_right hxy fz.toRat
+        exact round_monotonic fmt mode _ _ hle
+      | infinity s => simp [FloatValue.isFinite] at hz
+      | nan => simp [FloatValue.isFinite] at hz
+
 -- THEOREM: Error bounds follow from the definition of rounding
 theorem round_relative_error (fmt : FloatFormat) (q : Rat) (hq : q ≠ 0) :
     ∃ δ : Rat, |δ| ≤ halfUlp fmt ∧
@@ -951,7 +1024,10 @@ instance : FloatSpec (FloatValue binary64) where
   to_rat_zero := toRat_zero binary64
 
   to_rat_inj := fun x y hx hy heq => by
-    sorry -- Requires showing toRat is injective for finite values
+    -- This fails for signed zeros (+0 and -0 have same toRat but different representations)
+    -- Also fails for non-canonical representations (same toRat, different mantissa/exp)
+    -- Would need: 1) semantic equality, or 2) normalization invariant in FloatRepr
+    sorry
 
   to_rat_neg := fneg_toRat
 
@@ -982,7 +1058,9 @@ instance : FloatSpec (FloatValue binary64) where
       simp only [h, ↓reduceIte]
     | nan => rfl
 
-  add_monotonic_left := fun _ _ _ _ _ => by sorry
+  add_monotonic_left := fun x y z hz hxy => by
+    simp only [HAdd.hAdd, Add.add]
+    exact fadd_monotonic_left binary64 defaultMode x y z hz hxy
   mul_monotonic_pos := fun _ _ _ _ _ => by sorry
   div_monotonic_num := fun _ _ _ _ _ => by sorry
   div_antimonotonic_den := fun _ _ _ _ _ _ _ => by sorry
@@ -1106,7 +1184,9 @@ instance : FloatSpec (FloatValue binary32) where
   to_rat_nan := toRat_nan binary32
   to_rat_inf := toRat_infinity binary32 false
   to_rat_zero := toRat_zero binary32
-  to_rat_inj := fun x y hx hy heq => by sorry
+  to_rat_inj := fun x y hx hy heq => by
+    -- Same issue as binary64: signed zeros and non-canonical representations
+    sorry
   to_rat_neg := fneg_toRat
 
   add_comm := fun x y => by
@@ -1135,7 +1215,9 @@ instance : FloatSpec (FloatValue binary32) where
       simp only [h, ↓reduceIte]
     | nan => rfl
 
-  add_monotonic_left := fun _ _ _ _ _ => by sorry
+  add_monotonic_left := fun x y z hz hxy => by
+    simp only [HAdd.hAdd, Add.add]
+    exact fadd_monotonic_left binary32 defaultMode x y z hz hxy
   mul_monotonic_pos := fun _ _ _ _ _ => by sorry
   div_monotonic_num := fun _ _ _ _ _ => by sorry
   div_antimonotonic_den := fun _ _ _ _ _ _ _ => by sorry
