@@ -2253,6 +2253,14 @@ axiom roundToFloat_band_monotonic (cfg_prec : Nat) (cfg_emin cfg_emax : Int)
     This follows from the structure of IEEE 754 representation where within a band,
     larger mantissa corresponds to larger value.
 
+    IMPORTANT: This theorem requires that no exponent clamping occurs. When exponents
+    are clamped (to emin or emax), the mantissa isn't adjusted, which can violate
+    the ordering. A counterexample: x=2/3, y=4/5, prec=2, emin=0 gives
+    rx=(6,0), ry=(4,0) where 6 > 4 despite x < y.
+
+    For the clamping case, a proper IEEE 754 implementation would use subnormals,
+    which this simplified model doesn't implement.
+
     The proof handles two main cases:
     1. When log2Rat(x) = log2Rat(y): scaling is identical, roundRatToNat_monotonic applies
     2. When log2Rat(x) ≠ log2Rat(y): uses normalizeMantissa_monotonic_same_exp -/
@@ -2359,8 +2367,12 @@ theorem roundToFloat_mantissa_monotonic_same_band (cfg_prec : Nat) (cfg_emin cfg
           exact normalizeMantissa_exp_monotonic cfg_prec rounded_x rounded_y e_y
             (rounded_x + cfg_prec) (rounded_y + cfg_prec) h_rounded_le
             (by omega) (by omega)
-        -- If exp_x < exp_y, then clamp_x and clamp_y can only match if both clamped
-        -- This is a boundary case that the computational tests verify
+        -- KNOWN LIMITATION: When exp_x < exp_y but both are clamped to the same boundary,
+        -- the mantissa ordering may be violated. Example: x=2/3, y=4/5, prec=2, emin=0
+        -- gives rx.mantissa=6 > 4=ry.mantissa. This is because clamping adjusts the exponent
+        -- but not the mantissa, which is incorrect for proper IEEE 754 subnormal handling.
+        -- A complete implementation would need denormalized number support.
+        -- For now, this case is marked as a known limitation.
         sorry
 
   · -- Case 2: log2Rat(x) ≠ log2Rat(y)
@@ -2368,16 +2380,14 @@ theorem roundToFloat_mantissa_monotonic_same_band (cfg_prec : Nat) (cfg_emin cfg
     -- However, for them to end up with the same final exponent after
     -- normalization and clamping, specific conditions must hold.
 
-    -- The key insight: even with different log2Rat values, the final
-    -- mantissas are ordered because the values are ordered (x ≤ y)
-    -- and the rounding respects value ordering within each band.
-
     by_cases h_mx_le_my : mx ≤ my
     · exact h_mx_le_my
     · push_neg at h_mx_le_my
       exfalso
-      -- Similar reasoning: the final values are rx.toRat and ry.toRat
-      -- which are in the same band (same exponent) and must be ordered.
+      -- KNOWN LIMITATION: With different log2Rat values, the scaling factors differ.
+      -- When combined with clamping, the mantissa ordering may be violated for similar
+      -- reasons as the same-log2Rat clamping case. Without subnormal handling, this
+      -- model doesn't preserve value ordering through exponent clamping.
       sorry
 
 /-! ## Core Rounding Operation -/
