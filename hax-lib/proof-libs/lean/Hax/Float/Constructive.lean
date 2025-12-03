@@ -18,6 +18,7 @@ import Hax.Lib
 import Mathlib.Data.Rat.Defs
 import Mathlib.Algebra.Order.Ring.Rat
 import Mathlib.Tactic.NormNum
+import Hax.Float.Spec
 
 namespace Float.Constructive
 
@@ -357,6 +358,25 @@ def FloatValue.lt {fmt : FloatFormat} (x y : FloatValue fmt) : Prop :=
 instance {fmt : FloatFormat} : LE (FloatValue fmt) := ⟨FloatValue.le⟩
 instance {fmt : FloatFormat} : LT (FloatValue fmt) := ⟨FloatValue.lt⟩
 
+/-! # Typeclass Instances for FloatValue -/
+
+/-- Default rounding mode for typeclass operations -/
+def defaultMode : RoundMode := .toNearest
+
+instance {fmt : FloatFormat} : Add (FloatValue fmt) := ⟨fadd fmt defaultMode⟩
+instance {fmt : FloatFormat} : Sub (FloatValue fmt) := ⟨fsub fmt defaultMode⟩
+instance {fmt : FloatFormat} : Mul (FloatValue fmt) := ⟨fmul fmt defaultMode⟩
+instance {fmt : FloatFormat} : Div (FloatValue fmt) := ⟨fdiv fmt defaultMode⟩
+instance {fmt : FloatFormat} : Neg (FloatValue fmt) := ⟨fneg⟩
+instance {fmt : FloatFormat} : Zero (FloatValue fmt) := ⟨fzero fmt⟩
+instance {fmt : FloatFormat} : One (FloatValue fmt) := ⟨fone fmt⟩
+
+/-- Two as a FloatValue -/
+def ftwo (fmt : FloatFormat) : FloatValue fmt :=
+  fadd fmt defaultMode (fone fmt) (fone fmt)
+
+instance {fmt : FloatFormat} : OfNat (FloatValue fmt) 2 := ⟨ftwo fmt⟩
+
 /-! # Phase 2: Definitional Properties (trivially proved) -/
 
 -- Predicate properties
@@ -597,6 +617,127 @@ With this constructive approach:
 This dramatically reduces the trusted axiom base while providing
 the same usable properties for verification.
 -/
+
+/-! # FloatSpec Instance for FloatValue binary64 -/
+
+open Float.Spec in
+instance : FloatSpec (FloatValue binary64) where
+  epsilon := epsilon binary64
+
+  nan := fnan binary64
+  infinity := finfinity binary64
+
+  is_nan := FloatValue.isNaN
+  is_inf := FloatValue.isInf
+  is_finite := FloatValue.isFinite
+
+  is_nan_nan := isNaN_nan binary64
+  is_inf_infinity := isInf_infinity binary64 false
+  not_nan_infinity := by simp [finfinity, FloatValue.isNaN]
+  not_inf_nan := by simp [fnan, FloatValue.isInf]
+
+  finite_def := fun x => by
+    constructor
+    · intro h
+      cases x with
+      | finite f => simp [FloatValue.isNaN, FloatValue.isInf]
+      | infinity s => simp [FloatValue.isFinite] at h
+      | nan => simp [FloatValue.isFinite] at h
+    · intro ⟨hnan, hinf⟩
+      cases x with
+      | finite f => rfl
+      | infinity s => simp [FloatValue.isInf] at hinf
+      | nan => simp [FloatValue.isNaN] at hnan
+
+  is_finite_zero := rfl
+  is_finite_one := rfl
+  is_finite_neg := fun x hfin => by
+    cases x with
+    | finite f => simp [Neg.neg, fneg, FloatValue.isFinite]
+    | infinity s => simp [FloatValue.isFinite] at hfin
+    | nan => simp [FloatValue.isFinite] at hfin
+
+  mul_zero_finite := fun x _ => by
+    simp only [HMul.hMul, Mul.mul, Zero.zero]
+    simp only [fmul, fzero, FloatRepr.toRat]
+    simp [zero_mul, round]
+    sorry -- Need to show round 0 = fzero
+
+  to_rat := FloatValue.toRat
+  to_rat_nan := toRat_nan binary64
+  to_rat_inf := toRat_infinity binary64 false
+  to_rat_zero := toRat_zero binary64
+
+  to_rat_inj := fun x y hx hy heq => by
+    sorry -- Requires showing toRat is injective for finite values
+
+  to_rat_neg := fneg_toRat
+
+  add_comm := fun x y => by
+    simp only [HAdd.hAdd, Add.add]
+    exact fadd_comm binary64 defaultMode x y
+
+  mul_comm := fun x y => by
+    simp only [HMul.hMul, Mul.mul]
+    exact fmul_comm binary64 defaultMode x y
+
+  add_zero_left := fun x => by
+    simp only [HAdd.hAdd, Add.add, Zero.zero]
+    cases x with
+    | finite f => exact fadd_zero_left binary64 defaultMode f
+    | infinity s => rfl
+    | nan => rfl
+
+  mul_one_left := fun x => by
+    simp only [HMul.hMul, Mul.mul, One.one]
+    cases x with
+    | finite f => exact fmul_one_left binary64 defaultMode f
+    | infinity s =>
+      simp only [fmul, fone]
+      sorry -- Need to handle infinity * 1 case
+    | nan => rfl
+
+  add_monotonic_left := fun _ _ _ _ _ => by sorry
+  mul_monotonic_pos := fun _ _ _ _ _ => by sorry
+  div_monotonic_num := fun _ _ _ _ _ => by sorry
+  div_antimonotonic_den := fun _ _ _ _ _ _ _ => by sorry
+
+  sterbenz := fun _ _ _ _ => by sorry
+
+  neg_exact := neg_neg
+  neg_mul := fun x y => by
+    simp only [HMul.hMul, Mul.mul, Neg.neg]
+    sorry -- Need to prove fneg distributes over fmul
+
+  neg_le_neg := fun _ _ => by sorry
+
+  sub_eq_add_neg := fun x y => by
+    simp only [HSub.hSub, Sub.sub, HAdd.hAdd, Add.add, Neg.neg]
+    rfl
+
+  add_neg_self := fun x hfin => by
+    simp only [HAdd.hAdd, Add.add, Neg.neg, Zero.zero]
+    sorry -- Need to prove x + (-x) = 0 for finite x
+
+  le_trans := le_trans
+  le_antisymm := fun _ _ _ _ => by sorry
+  le_total := fun _ _ _ _ => by sorry
+
+  lt_iff_le_not_le := lt_iff_le_not_le
+
+  div_self := fun _ _ _ => by sorry
+
+  mul_div_cancel := fun _ _ _ _ _ _ _ => by sorry
+  div_mul_cancel := fun _ _ _ _ _ _ _ => by sorry
+
+  add_relative_error := fun x y hx hy hxy => by
+    sorry -- Error bound proof
+
+  mul_relative_error := fun x y hx hy hxy => by
+    sorry -- Error bound proof
+
+  div_relative_error := fun x y hx hy hxy hnz => by
+    sorry -- Error bound proof
 
 /-! # Examples using Constructive Definitions -/
 
