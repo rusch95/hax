@@ -34,6 +34,12 @@ macro "additional_uint_decls" typeName:ident width:term : command => do
     theorem mulOverflow_iff {a b : $typeName} : mulOverflow a b ↔ a.toNat * b.toNat ≥ 2 ^ $width :=
       decide_eq_true_iff
 
+    /-- Minimum value for this unsigned integer type (always 0) -/
+    abbrev MIN : $typeName := 0
+
+    /-- Maximum value for this unsigned integer type -/
+    abbrev MAX : $typeName := $(mkIdent (typeName.getId ++ `ofNat)) ($(mkIdent (typeName.getId ++ `size)) - 1)
+
     end $typeName
   )
   return ⟨mkNullNode cmds⟩

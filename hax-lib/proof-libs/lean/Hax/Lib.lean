@@ -13,6 +13,8 @@ import Std.Do.Triple
 import Std.Tactic.Do
 import Std.Tactic.Do.Syntax
 import Hax.Initialize
+import Hax.MissingLean.Init.Data.UInt.Basic
+import Hax.MissingLean.Init.Data.SInt.Basic
 
 open Std.Do
 open Std.Tactic
@@ -187,6 +189,30 @@ abbrev i32 := Int32
 abbrev i64 := Int64
 abbrev isize := ISize
 
+-- MIN and MAX aliases for lowercase type names
+open Lean in
+set_option hygiene false in
+macro "declare_minmax_alias" lowerName:ident upperName:ident : command => do
+  let minName := mkIdent (lowerName.getId ++ `MIN)
+  let maxName := mkIdent (lowerName.getId ++ `MAX)
+  let upperMin := mkIdent (upperName.getId ++ `MIN)
+  let upperMax := mkIdent (upperName.getId ++ `MAX)
+  `(
+    abbrev $minName : $lowerName := $upperMin
+    abbrev $maxName : $lowerName := $upperMax
+  )
+
+declare_minmax_alias u8 UInt8
+declare_minmax_alias u16 UInt16
+declare_minmax_alias u32 UInt32
+declare_minmax_alias u64 UInt64
+declare_minmax_alias usize USize
+declare_minmax_alias i8 Int8
+declare_minmax_alias i16 Int16
+declare_minmax_alias i32 Int32
+declare_minmax_alias i64 Int64
+declare_minmax_alias isize ISize
+
 /-- Class of objects that can be transformed into Nat -/
 class ToNat (α: Type) where
   toNat : α -> Nat
@@ -288,6 +314,29 @@ for each implementation of typeclasses
 
 -/
 
+-- Core.Num.Impl_N namespaces for hax-extracted MIN/MAX (Impl_4/Impl_10 = i128/u128 not supported)
+open Lean in
+set_option hygiene false in
+macro "declare_core_num_impl" implName:ident typeName:ident : command => do
+  let nsName := mkIdent (`Core.Num ++ implName.getId)
+  `(
+    namespace $nsName
+      abbrev MIN : $typeName := $(mkIdent (typeName.getId ++ `MIN))
+      abbrev MAX : $typeName := $(mkIdent (typeName.getId ++ `MAX))
+    end $nsName
+  )
+
+declare_core_num_impl Impl i8
+declare_core_num_impl Impl_1 i16
+declare_core_num_impl Impl_2 i32
+declare_core_num_impl Impl_3 i64
+declare_core_num_impl Impl_5 isize
+declare_core_num_impl Impl_6 u8
+declare_core_num_impl Impl_7 u16
+declare_core_num_impl Impl_9 u64
+declare_core_num_impl Impl_11 usize
+
+-- Impl_8 (u32) has additional operations
 namespace Core.Num.Impl_8
 @[simp, spec]
 def wrapping_add (x y: u32) : RustM u32 := pure (x + y)
@@ -311,6 +360,9 @@ def to_le_bytes (x:u32) : RustM (Vector u8 4) :=
     (x >>> 16 % 256).toUInt8,
     (x >>> 24 % 256).toUInt8,
   ]
+
+abbrev MIN : u32 := u32.MIN
+abbrev MAX : u32 := u32.MAX
 
 end Core.Num.Impl_8
 

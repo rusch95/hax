@@ -40,6 +40,12 @@ macro "additional_int_decls" typeName:ident width:term : command => do `(
   theorem toInt_mul_of_not_mulOverflow {x y : $typeName} (h : ¬ mulOverflow x y) :
       (x * y).toInt = x.toInt * y.toInt := BitVec.toInt_mul_of_not_smulOverflow h
 
+  /-- Minimum value for this signed integer type -/
+  abbrev MIN : $typeName := $(mkIdent (typeName.getId ++ `minValue))
+
+  /-- Maximum value for this signed integer type -/
+  abbrev MAX : $typeName := $(mkIdent (typeName.getId ++ `maxValue))
+
   end $typeName
 )
 
